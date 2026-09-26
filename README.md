@@ -44,7 +44,8 @@ No se necesita CRCW porque el diseño evita escrituras simultáneas sobre una mi
 - ✅ Automatización inicial de tiempos (`benchmarks/run_benchmarkB1.py`).
 - ✅ Derivación PRAM documentada (`docs/derivacion_pram.md`).
 - ✅ Informe LaTeX integrado (`report/main.tex`).
-- ⏳ Beta 0 secuencial completa para `m` semillas.
+- ✅ Beta 0 secuencial completa para m semillas.
+- ✅ Validación inicial contra Beta 1 realizada con p=4 y n_samples=5000.
 - ⏳ Reducción experimental en árbol / Beta 2.
 - ⏳ Resultados finales, speedup y eficiencia.
 - ⏳ Fuentes, reflexión sobre referencias y uso de IA.
@@ -80,6 +81,17 @@ pram-mlp-training/
 
 ```bash
 python -m pip install -r requirements.txt
+```
+## Ejecución de Beta 0
+
+La Beta 0 entrena secuencialmente las mismas `m` semillas que Beta 1
+ejecuta en paralelo. En el experimento se utiliza `m=p` para comparar
+workloads equivalentes.
+
+Desde la raíz del repositorio:
+
+```bash
+python src\beta0_sequential.py --p 4 --n_samples 5000
 ```
 
 ## Ejecución de Beta 1

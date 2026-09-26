@@ -467,6 +467,70 @@ $\Theta(E n d h)$ como el modelo de costo indicado por el enunciado; antes de la
 experimental final, el equipo debe congelar la arquitectura e hiperparámetros y no
 modificarlos entre configuraciones.
 
+\subsubsection{Validación de la semántica paralela}
+
+Para comprobar que la paralelización conserva la lógica del algoritmo secuencial, se
+compararon Beta 0 y Beta 1 utilizando el mismo dataset, la misma partición train/test,
+los mismos hiperparámetros y las mismas semillas para cada valor de $p$. Las pruebas se
+realizaron con $n=5000$ muestras y $p\in\{1,2,4\}$. En cada caso se utilizó
+$m=p$, por lo que ambas versiones procesaron el mismo workload.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{c r r c c c c}
+\toprule
+$p=m$ & $T_{\mathrm{seq}}$ (s) & $T_{\mathrm{par}}$ (s) &
+Semilla sec. & Semilla par. & Acc. sec. & Acc. par. \\
+\midrule
+1 & 2.4544 & 5.5927 & 0 & 0 & 0.9630 & 0.9630 \\
+2 & 5.5678 & 6.0055 & 1 & 1 & 0.9700 & 0.9700 \\
+4 & 10.0961 & 6.3861 & 1 & 1 & 0.9700 & 0.9700 \\
+\bottomrule
+\end{tabular}
+\caption{Validación inicial de Beta 0 y Beta 1 con $n=5000$.}
+\label{tab:validacion-beta}
+\end{table}
+
+En los tres casos, Beta 0 y Beta 1 seleccionaron la misma mejor semilla y obtuvieron la
+misma accuracy. Para $p=1$ la mejor semilla fue $0$, mientras que para $p=2$ y $p=4$
+fue $1$. Esto indica que la ejecución paralela conserva la lógica funcional de Beta 0:
+cada semilla entrena un modelo independiente y la selección final se realiza sobre el
+mismo conjunto de resultados.
+
+El speedup y la eficiencia se calcularon comparando el mismo workload secuencial y
+paralelo para cada valor de $p$:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{c c c}
+\toprule
+$p$ & Speedup $S(p)$ & Eficiencia $E_f(p)$ \\
+\midrule
+1 & $0.4388$ & $43.88\%$ \\
+2 & $0.9271$ & $46.36\%$ \\
+4 & $1.5809$ & $39.52\%$ \\
+\bottomrule
+\end{tabular}
+\caption{Speedup y eficiencia de la validación inicial.}
+\label{tab:metricas-validacion}
+\end{table}
+
+Por ejemplo, para $p=4$:
+
+\begin{equation}
+    S(4)=\frac{T_{\mathrm{seq}}(4)}{T_{\mathrm{par}}(4)}
+    =\frac{10.0961}{6.3861}\approx 1.5809,
+    \qquad
+    E_f(4)=\frac{1.5809}{4}\approx 39.52\%.
+\end{equation}
+
+Estos valores corresponden a una validación inicial, no al benchmark final. La
+diferencia respecto al speedup ideal se atribuye preliminarmente a la creación de
+procesos, la transferencia o copia de datos y la reducción secuencial realizada por el
+proceso maestro. En particular, para $p=1$ y $p=2$ el costo adicional de crear procesos
+supera el beneficio de la ejecución concurrente. A partir de $p=4$, el costo de los
+entrenamientos comienza a compensar parcialmente dicho overhead.
+
 \subsection{Benchmark Beta 1}
 
 El script \texttt{benchmarks/run\_benchmarkB1.py} automatiza combinaciones de
@@ -582,21 +646,51 @@ de $p$ semillas.
 \section{Impacto de las fuentes utilizadas}
 % ==================================================
 
-% TODO NOEMI: incorporar 4--5 fuentes relevantes y explicar el impacto concreto de cada una.
-% Evitar definiciones genéricas. Indicar qué decisión de diseño, complejidad o implementación
-% fue respaldada/cambiada por cada referencia.
+Las fuentes se utilizaron para respaldar decisiones concretas del diseño, y no solamente
+para incluir definiciones generales. El material oficial del curso fija el problema, el
+costo base $\Theta(E n d h)$, los tamaños de $p$ y $n$ y el pseudocódigo de referencia
+\cite{fiestas2026proyecto}. Por ello, el repositorio conserva esa expresión como baseline
+y no reemplaza el análisis por una cota genérica de multiplicación de matrices.
 
-Esta sección será completada con las referencias que hayan influido directamente en el
-diseño PRAM, la derivación de métricas y las decisiones de implementación.
+El libro de Grama, Gupta, Karypis y Kumar se utilizó para organizar el análisis en
+trabajo, profundidad, paralelismo, tiempo con $p$ procesadores, speedup y eficiencia
+\cite{grama2003}. Esta referencia influyó en la separación entre el trabajo total de las
+$m$ semillas y la profundidad del entrenamiento de una semilla más la reducción final.
+
+La documentación oficial de Python sobre \texttt{multiprocessing} respaldó la elección
+de procesos para la Beta 1. Esta biblioteca permite ejecutar tareas en procesos
+separados y aprovechar varios procesadores, pero también hizo necesario documentar el
+costo de creación de procesos y la serialización de datos en Windows
+\cite{pythonmultiprocessing}. Por ello, la implementación se presenta como una
+aproximación práctica del patrón CREW, no como memoria compartida PRAM literal.
+
+La documentación oficial de scikit-learn se utilizó para verificar el comportamiento de
+\texttt{MLPClassifier}, sus parámetros, la inicialización mediante \texttt{random\_state}
+y el entrenamiento del clasificador MLP \cite{sklearnmlp}. Esta fuente también evita
+afirmar que la implementación actual usa SGD explícitamente: mientras el código no
+establezca otro solver, se debe reportar la configuración real de \texttt{MLPClassifier}.
+
+Finalmente, el libro de Goodfellow, Bengio y Courville se utiliza como referencia
+conceptual para la red MLP, la propagación hacia adelante, la retropropagación y la
+optimización de redes neuronales \cite{goodfellow2016}. Su impacto se limita a la
+interpretación del núcleo de entrenamiento; los costos concretos del proyecto se toman
+del enunciado oficial del curso.
 
 % ==================================================
 \section{Uso de herramientas de inteligencia artificial}
 % ==================================================
 
-% TODO NOEMI/EQUIPO: redactar de forma específica y verificable.
-La versión final documentará de manera transparente las tareas en las que se utilizó IA,
-qué resultados fueron producidos y qué verificaciones o correcciones realizó el equipo
-antes de incorporar dichos resultados al proyecto.
+Se utilizó ChatGPT como herramienta de apoyo durante el desarrollo del proyecto. Las
+consultas se enfocaron en organizar el análisis CREW-PRAM, revisar la correspondencia
+entre el pseudocódigo y la implementación, derivar speedup y eficiencia, y mejorar la
+redacción del informe.
+
+La IA no se utilizó como sustituto de las mediciones ni como fuente experimental. El
+equipo verificó manualmente las propuestas contra el enunciado del curso, el código del
+repositorio y la documentación oficial de Python y scikit-learn. También se corrigieron
+las recomendaciones que no coincidían con la implementación actual, como distinguir el
+paralelismo entre semillas del paralelismo interno de las operaciones matriciales y
+separar el modelo teórico CREW del costo real de \texttt{multiprocessing}.
 
 % ==================================================
 \section{Conclusiones preliminares}
@@ -624,7 +718,7 @@ puntos de mejora para las siguientes versiones.
 \section*{Referencias}
 % ==================================================
 
-% TODO NOEMI: reemplazar por BibTeX/referencias definitivas.
-% El archivo report/references.bib queda reservado para esta sección.
+\bibliographystyle{plain}
+\bibliography{references}
 
 \end{document}
