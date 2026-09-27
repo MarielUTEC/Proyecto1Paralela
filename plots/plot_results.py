@@ -1,21 +1,20 @@
-"""Create execution-time, speedup and efficiency plots from experiment summaries."""
-
 import argparse
 import csv
 from pathlib import Path
-
 import matplotlib.pyplot as plt
 
+# Rutas por defecto
 ROOT = Path(__file__).resolve().parents[1]
 SUMMARY_DEFAULT = ROOT / "results/processed/resumen.csv"
 FIGURES_DEFAULT = ROOT / "report/figures"
 
 
 def load_summary(path):
-    with Path(path).open(newline="", encoding="utf-8") as stream:
-        rows = list(csv.DictReader(stream))
+    with open(path, mode="r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
     if not rows:
-        raise ValueError(f"No hay resultados completos en {path}")
+        raise ValueError(f"El archivo {path} está vacío.")
     return rows
 
 
@@ -24,124 +23,83 @@ def plot_results(summary_path=SUMMARY_DEFAULT, output_dir=FIGURES_DEFAULT):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    n_values = sorted({int(row["n_samples"]) for row in rows})
-    p_values = sorted({int(row["p"]) for row in rows})
-    colors = plt.get_cmap("viridis")
-    color_by_n = {
-        n: colors(index / max(1, len(n_values) - 1))
-        for index, n in enumerate(n_values)
-    }
+    # Extraer valores únicos de n y p
+    n_values = sorted(list({int(row["n_samples"]) for row in rows}))
+    p_values = sorted(list({int(row["p"]) for row in rows}))
 
-    fig, axis = plt.subplots(figsize=(8, 5.5))
+    # 1. Gráfica de Tiempos
+    plt.figure(figsize=(8, 5))
     for n in n_values:
-        group = sorted(
-            (row for row in rows if int(row["n_samples"]) == n),
-            key=lambda row: int(row["p"]),
-        )
-        p = [int(row["p"]) for row in group]
-        color = color_by_n[n]
-        axis.errorbar(
-            p,
-            [float(row["sequential_median_seconds"]) for row in group],
-            yerr=[float(row["sequential_stdev_seconds"]) for row in group],
-            color=color,
-            marker="o",
-            linestyle="--",
-            label=f"Secuencial, n={n}",
-            capsize=3,
-        )
-        axis.errorbar(
-            p,
-            [float(row["parallel_median_seconds"]) for row in group],
-            yerr=[float(row["parallel_stdev_seconds"]) for row in group],
-            color=color,
-            marker="s",
-            linestyle="-",
-            label=f"Paralelo, n={n}",
-            capsize=3,
-        )
-    axis.set_xscale("log", base=2)
-    axis.set_xticks(p_values, labels=[str(p) for p in p_values])
-    axis.set_xlabel("Procesos p (y semillas m=p)")
-    axis.set_ylabel("Tiempo mediano por ejecución (s)")
-    axis.set_title("Tiempo secuencial y paralelo por tamaño de dataset")
-    axis.grid(True, which="both", linestyle="--", alpha=0.4)
-    axis.legend(fontsize="small", ncol=2)
-    fig.tight_layout()
-    fig.savefig(output_dir / "tiempo.png", dpi=180)
-    plt.close(fig)
+        group = sorted([r for r in rows if int(r["n_samples"]) == n], key=lambda x: int(x["p"]))
+        p = [int(r["p"]) for r in group]
+        t_seq = [float(r["sequential_median_seconds"]) for r in group]
+        t_par = [float(r["parallel_median_seconds"]) for r in group]
 
-    fig, axis = plt.subplots(figsize=(8, 5.5))
+        plt.plot(p, t_seq, marker="o", linestyle="--", label=f"Secuencial (n={n})")
+        plt.plot(p, t_par, marker="s", linestyle="-", label=f"Paralelo (n={n})")
+
+    plt.xscale("log", base=2)
+    plt.xticks(p_values, [str(p) for p in p_values])
+    plt.xlabel("Número de procesos (p)")
+    plt.ylabel("Tiempo mediano (s)")
+    plt.title("Tiempo de Ejecución: Secuencial vs Paralelo")
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_dir / "tiempo.png")
+    plt.close()
+
+    # 2. Gráfica de Speedup
+    plt.figure(figsize=(8, 5))
     for n in n_values:
-        group = sorted(
-            (row for row in rows if int(row["n_samples"]) == n),
-            key=lambda row: int(row["p"]),
-        )
-        p = [int(row["p"]) for row in group]
-        speedups = [float(row["speedup_median"]) for row in group]
-        errors = [float(row["speedup_stdev"]) for row in group]
-        axis.errorbar(
-            p,
-            speedups,
-            yerr=errors,
-            marker="o",
-            capsize=3,
-            color=color_by_n[n],
-            label=f"n={n}",
-        )
-    axis.plot(p_values, p_values, color="black", linestyle=":", label="Ideal S=p")
-    axis.set_xscale("log", base=2)
-    axis.set_xticks(p_values, labels=[str(p) for p in p_values])
-    axis.set_xlabel("Procesos p (y semillas m=p)")
-    axis.set_ylabel("Speedup mediano")
-    axis.set_title("Speedup respecto al workload secuencial equivalente")
-    axis.grid(True, which="both", linestyle="--", alpha=0.4)
-    axis.legend()
-    fig.tight_layout()
-    fig.savefig(output_dir / "speedup.png", dpi=180)
-    plt.close(fig)
+        group = sorted([r for r in rows if int(r["n_samples"]) == n], key=lambda x: int(x["p"]))
+        p = [int(r["p"]) for r in group]
+        speedups = [float(r["speedup_median"]) for r in group]
 
-    fig, axis = plt.subplots(figsize=(8, 5.5))
+        plt.plot(p, speedups, marker="o", label=f"n={n}")
+
+    plt.plot(p_values, p_values, color="black", linestyle=":", label="Speedup Ideal (S=p)")
+    plt.xscale("log", base=2)
+    plt.xticks(p_values, [str(p) for p in p_values])
+    plt.xlabel("Número de procesos (p)")
+    plt.ylabel("Speedup")
+    plt.title("Aceleración (Speedup)")
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_dir / "speedup.png")
+    plt.close()
+
+    # 3. Gráfica de Eficiencia
+    plt.figure(figsize=(8, 5))
     for n in n_values:
-        group = sorted(
-            (row for row in rows if int(row["n_samples"]) == n),
-            key=lambda row: int(row["p"]),
-        )
-        p = [int(row["p"]) for row in group]
-        axis.errorbar(
-            p,
-            [100 * float(row["efficiency_median"]) for row in group],
-            yerr=[
-                100 * float(row["speedup_stdev"]) / int(row["p"])
-                for row in group
-            ],
-            marker="o",
-            capsize=3,
-            color=color_by_n[n],
-            label=f"n={n}",
-        )
-    axis.axhline(100, color="black", linestyle=":", label="Ideal (100%)")
-    axis.set_xscale("log", base=2)
-    axis.set_xticks(p_values, labels=[str(p) for p in p_values])
-    axis.set_xlabel("Procesos p (y semillas m=p)")
-    axis.set_ylabel("Eficiencia mediana (%)")
-    axis.set_title("Eficiencia E_f = S/p")
-    axis.grid(True, which="both", linestyle="--", alpha=0.4)
-    axis.legend()
-    fig.tight_layout()
-    fig.savefig(output_dir / "eficiencia.png", dpi=180)
-    plt.close(fig)
+        group = sorted([r for r in rows if int(r["n_samples"]) == n], key=lambda x: int(x["p"]))
+        p = [int(r["p"]) for r in group]
+        efficiency = [100 * float(r["efficiency_median"]) for r in group]
 
-    print(f"Graficas guardadas en {output_dir}")
+        plt.plot(p, efficiency, marker="o", label=f"n={n}")
+
+    plt.axhline(100, color="black", linestyle=":", label="Ideal (100%)")
+    plt.xscale("log", base=2)
+    plt.xticks(p_values, [str(p) for p in p_values])
+    plt.xlabel("Número de procesos (p)")
+    plt.ylabel("Eficiencia (%)")
+    plt.title("Eficiencia del Paralelismo")
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_dir / "eficiencia.png")
+    plt.close()
+
+    print(f"Gráficas generadas exitosamente en: {output_dir}")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Genera las gráficas del benchmark desde resumen.csv."
-    )
+    parser = argparse.ArgumentParser(description="Genera gráficas a partir del resumen de experimentos.")
     parser.add_argument("--summary", type=Path, default=SUMMARY_DEFAULT)
     parser.add_argument("--output_dir", type=Path, default=FIGURES_DEFAULT)
     args = parser.parse_args()
+
     plot_results(args.summary, args.output_dir)
 
 
