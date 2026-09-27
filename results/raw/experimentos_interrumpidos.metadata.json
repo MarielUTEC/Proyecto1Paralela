@@ -1,0 +1,111 @@
+{
+  "started_at_utc": "2026-09-27T04:30:08.503721+00:00",
+  "host": "margio-Vostro-3400",
+  "platform": "Linux-7.0.0-34-generic-x86_64-with-glibc2.39",
+  "cpu_model": "11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz",
+  "logical_cpus": 8,
+  "multiprocessing_start_method": "fork",
+  "python": "3.12.3",
+  "numpy": "2.5.3",
+  "scikit_learn": "1.9.1",
+  "threadpoolctl": "3.7.0",
+  "thread_limits": {
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1"
+  },
+  "native_threadpools": [
+    {
+      "user_api": "blas",
+      "internal_api": "openblas",
+      "num_threads": 1,
+      "prefix": "libscipy_openblas",
+      "filepath": "/home/margio/Documentos/Proyecto1Paralela/.venv/lib/python3.12/site-packages/scipy.libs/libscipy_openblas-5f890258.so",
+      "version": "0.3.31.dev",
+      "threading_layer": "pthreads",
+      "architecture": "SkylakeX"
+    },
+    {
+      "user_api": "openmp",
+      "internal_api": "openmp",
+      "num_threads": 1,
+      "prefix": "libgomp",
+      "filepath": "/home/margio/Documentos/Proyecto1Paralela/.venv/lib/python3.12/site-packages/scikit_learn.libs/libgomp-e985bcbb.so.1.0.0",
+      "version": null
+    },
+    {
+      "user_api": "blas",
+      "internal_api": "openblas",
+      "num_threads": 1,
+      "prefix": "libscipy_openblas",
+      "filepath": "/home/margio/Documentos/Proyecto1Paralela/.venv/lib/python3.12/site-packages/numpy.libs/libscipy_openblas64_-f48b354e.so",
+      "version": "0.3.34.106.0",
+      "threading_layer": "pthreads",
+      "architecture": "SkylakeX"
+    }
+  ],
+  "p_values": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    32
+  ],
+  "n_samples_values": [
+    5000,
+    10000,
+    20000,
+    40000
+  ],
+  "repetitions": 3,
+  "workload_rule": "m=p; seeds=range(p)",
+  "dataset": {
+    "generator": "sklearn.datasets.make_classification",
+    "n_features": 20,
+    "n_informative": 15,
+    "n_redundant": 5,
+    "n_classes": 2,
+    "random_state": 42
+  },
+  "split": {
+    "test_size": 0.2,
+    "random_state": 0
+  },
+  "mlp": {
+    "hidden_layer_sizes": [
+      10,
+      10
+    ],
+    "alpha": 0.0001,
+    "learning_rate_init": 0.001,
+    "max_iter": 200,
+    "solver": "scikit-learn default (adam)"
+  },
+  "timing": "perf_counter around the training function; dataset generation excluded; split, process-pool lifecycle and winner selection included",
+  "campaign_status": "interrupted_after_partial_n20000",
+  "completed_n_samples": [
+    5000,
+    10000
+  ],
+  "partial_n_samples": [
+    20000
+  ],
+  "not_started_n_samples": [
+    40000
+  ],
+  "completion_note": "Only n=5000 and n=10000 are complete for every p and repetition. Partial n=20000 rows are retained for audit and excluded from final plots.",
+  "available_cpu_ids": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "available_cpu_count": 8,
+  "physical_memory_bytes": 12252114944
+}

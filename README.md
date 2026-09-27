@@ -45,10 +45,11 @@ No se necesita CRCW porque el diseño evita escrituras simultáneas sobre una mi
 - ✅ Derivación PRAM documentada (`docs/derivacion_pram.md`).
 - ✅ Informe LaTeX integrado (`report/main.tex`).
 - ✅ Beta 0 secuencial completa para m semillas.
-- ✅ Validación inicial contra Beta 1 realizada con p=4 y n_samples=5000.
-- ⏳ Reducción experimental en árbol / Beta 2.
-- ⏳ Resultados finales, speedup y eficiencia.
-- ⏳ Fuentes, reflexión sobre referencias y uso de IA.
+- ✅ Campaña reproducible de Beta 0 vs Beta 1 (`benchmarks/run_experiments.py`).
+- ✅ Resumen de speedup/eficiencia y gráficas desde los resultados (`plots/plot_results.py`).
+- ⚠️ La Beta 1 conserva reducción secuencial en el maestro; no equivale a la reducción PRAM en árbol.
+- ✅ Medidas completas para todos los p con n=5000 y n=10000 (3 repeticiones).
+- ⏳ n=20000 y n=40000 pendientes; la ejecución parcial se conserva como archivo de auditoría.
 
 ## Estructura
 
@@ -57,7 +58,8 @@ pram-mlp-training/
 ├── README.md
 ├── requirements.txt
 ├── benchmarks/
-│   └── run_benchmarkB1.py
+│   ├── run_benchmarkB1.py
+│   └── run_experiments.py
 ├── docs/
 │   ├── decisiones.md
 │   └── derivacion_pram.md
@@ -68,8 +70,8 @@ pram-mlp-training/
 │   ├── references.bib
 │   └── figures/
 ├── results/
-│   ├── raw/
-│   └── processed/
+│   ├── raw/       # mediciones individuales y metadatos
+│   └── processed/ # resumen estadístico
 └── src/
     ├── beta0_sequential.py
     ├── beta1_parallel.py
@@ -80,8 +82,11 @@ pram-mlp-training/
 ## Instalación
 
 ```bash
-python -m pip install -r requirements.txt
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
 ```
+
+En Windows, use `.venv\Scripts\python.exe` en lugar de `.venv/bin/python`.
 ## Ejecución de Beta 0
 
 La Beta 0 entrena secuencialmente las mismas `m` semillas que Beta 1
@@ -91,7 +96,7 @@ workloads equivalentes.
 Desde la raíz del repositorio:
 
 ```bash
-python src\beta0_sequential.py --p 4 --n_samples 5000
+.venv/bin/python src/beta0_sequential.py --p 4 --n_samples 5000
 ```
 
 ## Ejecución de Beta 1
@@ -99,7 +104,7 @@ python src\beta0_sequential.py --p 4 --n_samples 5000
 Desde la raíz del repositorio:
 
 ```bash
-python src/beta1_parallel.py --p 4 --n_samples 5000
+.venv/bin/python src/beta1_parallel.py --p 4 --n_samples 5000
 ```
 
 La Beta 1 actual interpreta `p` simultáneamente como número de workers y, siguiendo el caso particular del enunciado, número de semillas (`m=p`).
@@ -107,7 +112,7 @@ La Beta 1 actual interpreta `p` simultáneamente como número de workers y, sigu
 ## Benchmark inicial Beta 1
 
 ```bash
-python benchmarks/run_benchmarkB1.py --p 1 2 4 8 --n_samples 5000 10000 --repeticiones 3
+.venv/bin/python benchmarks/run_benchmarkB1.py --p 1 2 4 8 --n_samples 5000 10000 --repeticiones 3
 ```
 
 El benchmark de Beta 1 **mide tiempos paralelos**, pero todavía no debe usarse por sí solo para calcular speedup final.
@@ -120,12 +125,35 @@ Si se usa el caso del enunciado `m=p`, cada punto cambia también el número de 
 
 No es correcto usar el tiempo de `p=1` (un solo modelo) como baseline de una ejecución con `p>1` modelos.
 
-## Consideraciones para los experimentos finales
+## Campaña experimental comparable
 
-Antes de obtener las mediciones definitivas se debe:
+El benchmark comparable mide Beta 0 y Beta 1 para las mismas `p` semillas, datos y configuración. Por defecto recorre todos los valores del proyecto (`p={1,2,4,8,16,32}`, `n_samples={5000,10000,20000,40000}`) con tres repeticiones. Los datos generados se excluyen del cronómetro; división train/test, entrenamiento, creación/cierre del pool y selección del ganador sí se miden. Se alterna el orden secuencial/paralelo entre repeticiones.
 
-1. fijar la arquitectura e hiperparámetros y mantenerlos constantes;
-2. controlar los hilos internos de BLAS/OpenMP para evitar oversubscription dentro de cada proceso;
-3. registrar hardware, versiones de Python/scikit-learn y sistema operativo;
-4. ejecutar varias repeticiones por configuración;
-5. comparar siempre workload secuencial y paralelo equivalentes.
+```bash
+.venv/bin/python benchmarks/run_experiments.py
+.venv/bin/python plots/plot_results.py
+```
+
+Una campaña nueva completa usa por defecto `p={1,2,4,8,16,32}`, `n_samples={5000,10000,20000,40000}` y tres repeticiones. Guarda cada medición en `results/raw/experimentos.csv`, el resumen en `results/processed/resumen.csv` y el hardware/software e hiperparámetros en `results/raw/experimentos.metadata.json`. El resumen reporta mediana, promedio y desviación estándar muestral de tiempos, además de speedup por repetición emparejada y eficiencia mediana. Las gráficas se escriben en `report/figures/`.
+
+Los resultados completos disponibles en esta revisión cubren todos los valores de p para `n_samples=5000` y `10000`: [experimentos_n5000_10000.csv](results/raw/experimentos_n5000_10000.csv), [resumen_n5000_10000.csv](results/processed/resumen_n5000_10000.csv) y [metadatos](results/raw/experimentos_n5000_10000.metadata.json). La campaña mayor se detuvo por costo de cómputo; sus mediciones parciales de `n=20000` están preservadas separadamente y no se usan en el resumen ni en las gráficas: [experimentos_interrumpidos.csv](results/raw/experimentos_interrumpidos.csv).
+
+Para volver a generar las figuras a partir de las mediciones completas disponibles:
+
+```bash
+.venv/bin/python plots/plot_results.py \
+  --summary results/processed/resumen_n5000_10000.csv
+```
+
+Para probar un subconjunto o reducir el costo inicial:
+
+```bash
+.venv/bin/python benchmarks/run_experiments.py --p 1 2 4 --n_samples 5000 10000 --repeticiones 2 \
+  --raw_out results/raw/piloto.csv --summary_out results/processed/piloto.csv
+.venv/bin/python plots/plot_results.py --summary results/processed/piloto.csv \
+  --output_dir results/processed/figuras_piloto
+```
+
+Los archivos de salida existentes no se sobrescriben salvo que se indique `--overwrite`. Cada fila raw se vacía a disco inmediatamente, para preservar mediciones si la campaña se interrumpe. El paralelismo interno OpenMP/BLAS se fija a un hilo por proceso y esa configuración queda registrada. `p` es el número de procesos solicitado, no una garantía de disponer de igual cantidad de CPU físicas; se debe discutir el efecto si `p` supera los procesadores lógicos disponibles.
+
+La accuracy registrada es la del modelo ganador, seleccionado usando la partición test según el algoritmo del curso. Por ello debe interpretarse como métrica de selección y no como estimación imparcial de generalización; una evaluación metodológicamente más sólida elegiría la semilla en validación y reservaría test para una única evaluación final. Las repeticiones conservan datos y semillas para medir ruido de ejecución, no incertidumbre estadística de accuracy.

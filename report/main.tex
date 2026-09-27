@@ -127,6 +127,18 @@ donde $E$ es el número de épocas/iteraciones consideradas por el modelo de cos
 $n$ el número de muestras, $d$ la dimensión de entrada y $h$ el parámetro de ancho
 utilizado en la cota proporcionada.
 
+\paragraph{Alcance de la cota.}
+$\Theta(E n d h)$ se adopta como el costo de un modelo estipulado por el enunciado,
+no como una cota universal del código de \texttt{scikit-learn}. Para una arquitectura
+MLP fija, el costo por época de las operaciones densas es proporcional a
+$n\sum_{\ell=1}^{L} w_{\ell-1}w_\ell$, donde $w_0=d$ y $w_\ell$ es el ancho de la
+capa $\ell$; por tanto, puede resumirse como lineal en $n$ con la arquitectura fija.
+En la configuración implementada, \texttt{hidden\_layer\_sizes=(10,10)} y dos clases.
+Además, \texttt{MLPClassifier.max\_iter=200} es un máximo de iteraciones/épocas, no
+garantiza que cada ajuste ejecute exactamente 200: el criterio de convergencia puede
+detenerlo antes. En la derivación ideal se considera un costo $C$ uniforme por modelo;
+las mediciones reales pueden variar entre semillas por esta razón.
+
 % ==================================================
 \section{Formulación del problema y algoritmo secuencial}
 % ==================================================
@@ -317,6 +329,23 @@ La Ley de Brent proporciona además la cota general
     \label{eq:brent}
 \end{equation}
 
+La expresión anterior corresponde al algoritmo ideal con reducción en árbol. En la
+Beta 1 implementada, el maestro usa \texttt{max} secuencial, de modo que una descripción
+más fiel de la ejecución medida es
+
+\begin{equation}
+    T_{\mathrm{Beta1}}(m,p)
+    \approx T_{\mathrm{setup}}(p,n)
+    + \left\lceil\frac{m}{p}\right\rceil C
+    + \Theta(m)
+    + T_{\mathrm{comunicacion}}(p,n).
+    \label{eq:beta1-tiempo}
+\end{equation}
+
+$T_{\mathrm{setup}}$ incluye la creación/cierre de procesos y la partición de datos;
+$T_{\mathrm{comunicacion}}$ representa la serialización y transferencia de tareas y
+resultados. Estos términos dependen de la plataforma y no son parte del modelo PRAM.
+
 \subsection{Caso particular $m=p$}
 
 El enunciado define $S=\{0,1,\ldots,p-1\}$, de modo que $m=p$. En esta configuración,
@@ -460,12 +489,26 @@ $\Theta(m)$ en el maestro. La reducción en árbol $\Theta(\log m)$ pertenece al
 teórico y debe incorporarse en una beta posterior si se busca una correspondencia más
 estrecha entre código y pseudocódigo PRAM.
 
-La configuración actual de Beta 1 es provisional. El código utiliza por defecto
+La campaña registrada congela la configuración actual de Beta 1:
 \texttt{hidden\_layer\_sizes=(10,10)}, $\alpha=10^{-4}$,
 \texttt{learning\_rate\_init}$=10^{-3}$ y \texttt{max\_iter}$=200$. El informe mantiene
-$\Theta(E n d h)$ como el modelo de costo indicado por el enunciado; antes de la campaña
-experimental final, el equipo debe congelar la arquitectura e hiperparámetros y no
-modificarlos entre configuraciones.
+$\Theta(E n d h)$ como el modelo de costo indicado por el enunciado. Si posteriormente se
+cambia la arquitectura o los hiperparámetros, esos resultados deben medirse y registrarse
+como una campaña distinta, no mezclarse con los actuales.
+
+\paragraph{Interpretación de accuracy.}
+El pseudocódigo actual elige la mejor semilla usando accuracy en el conjunto denominado
+test. Si se utiliza ese mismo conjunto tanto para elegir el ganador como para informar
+su accuracy, la métrica queda sesgada hacia arriba por selección y no es una estimación
+independiente del rendimiento de generalización. Para conservar literalmente el
+algoritmo planteado, el benchmark registra esa métrica como \emph{accuracy de selección};
+una evaluación de generalización más sólida separaría train, validación y test, elegiría
+la semilla con validación y mediría una sola vez el modelo elegido en el test reservado.
+Este cambio metodológico debe aprobarse como ajuste al alcance del enunciado, no
+introducirse silenciosamente en la comparación de tiempos.
+Además, como $m=p$, al crecer $p$ también crece la cantidad de inicializaciones
+candidatas; una mejora de accuracy seleccionada no puede atribuirse a paralelizar un
+mismo modelo ni compararse como si el número de candidatos fuera constante.
 
 \subsubsection{Validación de la semántica paralela}
 
@@ -474,6 +517,10 @@ compararon Beta 0 y Beta 1 utilizando el mismo dataset, la misma partición trai
 los mismos hiperparámetros y las mismas semillas para cada valor de $p$. Las pruebas se
 realizaron con $n=5000$ muestras y $p\in\{1,2,4\}$. En cada caso se utilizó
 $m=p$, por lo que ambas versiones procesaron el mismo workload.
+Los tiempos de la tabla siguiente pertenecen a una validación preliminar anterior, cuyo
+entorno y límites de hilos no quedaron registrados. Se conservan como evidencia histórica
+de equivalencia funcional, pero se excluyen del análisis y de las gráficas de la campaña
+reproducible.
 
 \begin{table}[H]
 \centering
@@ -533,40 +580,79 @@ entrenamientos comienza a compensar parcialmente dicho overhead.
 
 \subsection{Benchmark Beta 1}
 
-El script \texttt{benchmarks/run\_benchmarkB1.py} automatiza combinaciones de
+El script heredado \texttt{benchmarks/run\_benchmarkB1.py} mide únicamente Beta 1, por
+lo que sus tiempos no bastan para obtener speedup. La campaña comparable se ejecuta con
+\texttt{benchmarks/run\_experiments.py} y cubre
 
 \begin{equation}
     p\in\{1,2,4,8,16,32\},\qquad
     n\in\{5000,10000,20000,40000\},
 \end{equation}
 
-realiza varias repeticiones y registra tiempo promedio, mínimo, máximo y accuracy. Esta
-fase permite estudiar el costo real de la Beta 1, pero todavía no constituye el benchmark
-final de speedup mientras no se incluya el baseline secuencial equivalente para cada
-workload.
+con tres repeticiones por defecto. Para cada punto, Beta 0 y Beta 1 ejecutan el mismo
+conjunto de semillas $\{0,\ldots,p-1\}$ sobre los mismos datos. La generación del dataset
+se excluye del tiempo; ambos tiempos incluyen la partición train/test, entrenamiento,
+selección del ganador y, en Beta 1, inicio y cierre del pool. Los tiempos se registran
+por repetición en \texttt{results/raw/experimentos.csv}; las medianas, medias,
+desviaciones estándar muestrales, speedup emparejado y eficiencia se guardan en
+\texttt{results/processed/resumen.csv}. Hardware, versiones de software, semillas,
+parámetros y límites de hilos se conservan en el archivo JSON de metadatos asociado.
+El tiempo se toma con \texttt{time.perf\_counter}, un contador de alta resolución
+apropiado para duraciones \cite{pythontime}.
+
+Las salidas existentes no se sobrescriben accidentalmente. Se puede ejecutar un piloto
+con subconjuntos explícitos de $p$ y $n$ y cambiar las rutas de salida. La campaña limita
+OpenMP/BLAS a un hilo por proceso con \texttt{threadpoolctl}
+\cite{threadpoolctl} y alterna el orden secuencial/paralelo entre repeticiones para
+reducir sesgos por orden de ejecución.
+
+La campaña ejecutada en este equipo se detuvo por el costo de cómputo antes de completar
+$n=20000$ y $n=40000$. Los resultados completos para $n\in\{5000,10000\}$ y todos los
+valores de $p$, con tres repeticiones por configuración, se conservan en
+\texttt{results/raw/experimentos\_n5000\_10000.csv},
+\texttt{results/processed/resumen\_n5000\_10000.csv} y su archivo de metadatos. El CSV
+interrumpido completo (\texttt{results/raw/experimentos\_interrumpidos.csv}), que incluye
+las mediciones parciales de $n=20000$, se archiva por separado y no se usa para las
+gráficas ni las conclusiones cuantitativas.
 
 % ==================================================
 \section{Metodología experimental}
 % ==================================================
 
-La campaña final deberá mantener constantes arquitectura, hiperparámetros, número de
-features, proporción train/test, seed de generación del dataset, seed del split y entorno
-de ejecución. Para cada combinación se recomienda realizar al menos tres repeticiones y
-reportar tanto una medida central como la dispersión observada.
+La campaña mantiene constantes arquitectura, hiperparámetros, número de features,
+proporción train/test, seed de generación del dataset y seed del split. Para cada
+combinación usa tres repeticiones y reporta mediana y desviación estándar muestral
+(además de la media). También registra el host, CPU lógico disponible, sistema operativo,
+versiones de Python, NumPy, scikit-learn y \texttt{threadpoolctl}, método de inicio de
+procesos y bibliotecas numéricas detectadas. Estos metadatos son necesarios para que la
+comparación pueda interpretarse y repetirse en el mismo entorno.
+
+La medición disponible se ejecutó en Linux sobre un Intel Core i5-1135G7 @ 2.40 GHz,
+con 8 CPU lógicas y 12.25 GB de memoria reportada por el sistema. El entorno fue Python
+3.12.3, NumPy 2.5.3, scikit-learn 1.9.1 y \texttt{threadpoolctl} 3.7.0; OpenBLAS y
+OpenMP quedaron limitados a un hilo por proceso. Los detalles completos, incluidas las
+bibliotecas nativas detectadas, están en los metadatos JSON.
 
 El dataset sintético es apropiado para este objetivo porque permite fijar exactamente el
 número de muestras sin introducir cambios de distribución entre valores de $p$. La Beta
 1 actual genera datos binarios con \texttt{n\_features=20},
 \texttt{n\_informative=15} y \texttt{random\_state=42}.
+Las tres repeticiones reutilizan intencionalmente el mismo dataset, split y semillas de
+los MLP para hacer comparable el tiempo; por ello, la desviación reportada describe
+variación de ejecución, no incertidumbre estadística sobre la accuracy o la distribución
+de datos. Un estudio de generalización requeriría una campaña adicional con distintas
+semillas de datos/split y evaluación en test reservado.
 
 \subsection{Control del paralelismo interno}
 
 Las bibliotecas numéricas utilizadas por scikit-learn pueden ejecutar operaciones BLAS
 con múltiples hilos. Si cada proceso worker crea a su vez varios hilos internos se produce
-\emph{oversubscription}; en tal caso, $p$ deja de representar adecuadamente el número de
-recursos externos estudiado. Antes de medir resultados finales se deben limitar y
-documentar los hilos internos de OpenMP/BLAS, por ejemplo mediante variables de entorno
-o \texttt{threadpoolctl}.
+\emph{oversubscription}. El runner establece
+\texttt{OMP\_NUM\_THREADS=MKL\_NUM\_THREADS=OPENBLAS\_NUM\_THREADS=1}, utiliza
+\texttt{threadpoolctl} y registra los límites detectados. El valor $p$ es el número de
+procesos solicitado, no la cantidad de CPU físicas garantizadas; cuando excede los
+procesadores lógicos disponibles, la contención del sistema operativo es parte del
+resultado y debe mencionarse.
 
 \subsection{Métricas}
 
@@ -583,28 +669,81 @@ Para cada configuración se registrarán al menos:
 \section{Resultados y comparación teoría--experimento}
 % ==================================================
 
-% TODO MARGIORY: insertar resultados finales y figuras una vez terminados los benchmarks.
-A la fecha de este avance se dispone de la infraestructura inicial para medir tiempos de
-Beta 1. La comparación final deberá superponer el comportamiento experimental con el
-modelo teórico, considerando que la constante multiplicativa de la notación asintótica
-se estima a partir de mediciones y se mantiene fija al generar predicciones posteriores.
+Las gráficas se generan con \texttt{plots/plot\_results.py} a partir del resumen CSV. El
+tiempo compara ambas versiones, mientras que speedup y eficiencia se calculan para cada
+repetición emparejada como $T_{\mathrm{seq}}/T_{\mathrm{par}}$ y $S/p$; se reporta la
+mediana de esos cocientes. La curva ideal $S=p$ es una referencia, no una predicción de
+que el sistema operativo o la Beta 1 alcancen aceleración lineal.
 
-Si $\Cost=c\,E n d h$ para una constante empírica $c$, el caso $m=p$ predice
+Los únicos tamaños de dataset cubiertos de forma completa en la campaña son $n=5000$ y
+$n=10000$; no se extrapolan estos resultados a $n=20000$ o $n=40000$. La tabla
+siguiente presenta las medianas del speedup emparejado:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{c r r r r r r}
+\toprule
+$n$ & $p=1$ & $p=2$ & $p=4$ & $p=8$ & $p=16$ & $p=32$ \\
+\midrule
+5000  & 0.98 & 1.73 & 2.86 & 3.30 & 3.31 & 3.47 \\
+10000 & 1.03 & 1.62 & 2.66 & 2.99 & 3.11 & 3.64 \\
+\bottomrule
+\end{tabular}
+\caption{Mediana del speedup experimental para el workload equivalente $m=p$.}
+\label{tab:speedup-campana}
+\end{table}
+
+El mayor speedup observado en el subconjunto completo es $3.47$ para
+$n=5000,p=32$ y $3.64$ para $n=10000,p=32$. Sin embargo, la eficiencia correspondiente
+es solo $10.9\%$ y $11.4\%$: se crean 32 procesos en un equipo con 8 CPU lógicas, por lo
+que el número de workers supera los recursos de hardware disponibles y aumenta la
+contención. El speedup crece al incluir más modelos en el baseline secuencial, pero el
+tiempo paralelo también aumenta porque el workload cambia junto con $p$; estos puntos no
+representan strong scaling de un problema fijo.
+
+Para ambos tamaños, las medianas indican beneficio claro desde $p=2$, pero el speedup
+queda muy por debajo del ideal lineal. Entre $p=8$ y $p=32$ la eficiencia cae a menos de
+aproximadamente $42\%$, y el tiempo paralelo mediano no disminuye monótonamente. Esto es
+consistente con costos de creación/planificación de procesos, transferencia de arrays,
+reducción secuencial en el maestro y sobreasignación respecto de las 8 CPU lógicas. No se
+atribuye la desviación a una causa única que el benchmark no mida por separado.
+
+Hay dos cautelas en la lectura: para $n=5000,p=8$ el tiempo secuencial presenta una
+desviación estándar alta ($20.00$ s) y el speedup también dispersa ($0.77$), por lo que
+ese punto es inestable y no sustenta por sí solo una tendencia; además, para
+$n=10000,p=1$ la mediana $S=1.03$ apenas supera uno y no debe interpretarse como
+speedup superlineal, pues su dispersión es comparable al incremento. La accuracy de
+selección pasa de $0.963$ a $0.970$ para $n=5000$ y de $0.969$ a $0.9745$ para
+$n=10000$ al crecer $p$; como $m=p$ y la semilla ganadora se elige con la misma
+partición test, el aumento refleja también más inicializaciones candidatas y no prueba
+una mejora imparcial de generalización.
+
+Los tiempos de la tabla histórica de validación de $n=5000$ y
+$p\in\{1,2,4\}$ presentados antes son una medición separada, con entorno no registrado;
+no deben mezclarse con estos resultados ni considerarse reemplazo de las tres
+repeticiones controladas.
+
+Si se ajusta una referencia de costo para el modelo ideal, $C(n)=c n$ para arquitectura
+y número de épocas efectivos fijos, el caso $m=p$ predice
 
 \begin{equation}
-    T_{\mathrm{par,teo}}(p,n)
-    \approx c\,E n d h + c_r\log p,
+    T_{\mathrm{par,ideal}}(p,n)
+    \approx C(n) + c_r\log p,
 \end{equation}
 
-donde $c_r$ captura el costo de una etapa de reducción en el modelo ajustado. La Beta 1
-real puede apartarse de esta forma por serialización, creación de procesos, copias de
-datos y reducción secuencial.
+donde $c_r$ captura el costo de una etapa de reducción en el modelo ajustado. Esta curva
+no describe todos los costos de Beta 1: la reducción implementada es secuencial y se
+añaden creación de procesos, comunicación/copia de datos y planificación. Como $m=p$,
+cada punto incrementa simultáneamente el trabajo y los recursos; este diseño compara el
+speedup del workload de $p$ modelos y no es strong scaling de un workload fijo.
 
 \IfFileExists{figures/tiempo.png}{
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.8\textwidth]{figures/tiempo.png}
-    \caption{Tiempo de ejecución en función del número de workers.}
+    \caption{Tiempos medianos secuenciales y paralelos frente a $p$ para cada $n$;
+    barras de error de una desviación estándar muestral.}
 \end{figure}
 }{}
 
@@ -612,7 +751,8 @@ datos y reducción secuencial.
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.8\textwidth]{figures/speedup.png}
-    \caption{Speedup experimental.}
+    \caption{Mediana del speedup emparejado por repetición; la línea punteada
+    representa el ideal $S=p$ y las barras muestran una desviación estándar muestral.}
 \end{figure}
 }{}
 
@@ -620,7 +760,8 @@ datos y reducción secuencial.
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.8\textwidth]{figures/eficiencia.png}
-    \caption{Eficiencia experimental.}
+    \caption{Eficiencia mediana $E_f=S/p$; las barras muestran una desviación
+    estándar muestral de la eficiencia por repetición.}
 \end{figure}
 }{}
 
@@ -628,7 +769,6 @@ datos y reducción secuencial.
 \section{Análisis de escalabilidad}
 % ==================================================
 
-% TODO MARGIORY/MARIEL: completar con los resultados finales.
 La estrategia externa posee, idealmente, paralelismo máximo del orden de $m$, porque
 cada semilla proporciona una tarea independiente. Por ello, incluso bajo PRAM, aumentar
 $p$ más allá del número de semillas no reduce el costo interno de un MLP. En la
@@ -670,6 +810,12 @@ y el entrenamiento del clasificador MLP \cite{sklearnmlp}. Esta fuente también 
 afirmar que la implementación actual usa SGD explícitamente: mientras el código no
 establezca otro solver, se debe reportar la configuración real de \texttt{MLPClassifier}.
 
+La documentación de \texttt{make\_classification} y \texttt{train\_test\_split} respalda
+la generación reproducible de datos sintéticos y la partición de entrenamiento/prueba
+\cite{sklearnmakeclassification,sklearnmodelselection}. La metodología conserva semillas
+fijas para comparar configuraciones sobre los mismos datos; la aleatoriedad entre modelos
+se controla mediante semillas explícitas.
+
 Finalmente, el libro de Goodfellow, Bengio y Courville se utiliza como referencia
 conceptual para la red MLP, la propagación hacia adelante, la retropropagación y la
 optimización de redes neuronales \cite{goodfellow2016}. Su impacto se limita a la
@@ -693,7 +839,7 @@ paralelismo entre semillas del paralelismo interno de las operaciones matriciale
 separar el modelo teórico CREW del costo real de \texttt{multiprocessing}.
 
 % ==================================================
-\section{Conclusiones preliminares}
+\section{Conclusiones}
 % ==================================================
 
 El pseudocódigo del proyecto permite explotar un nivel de paralelismo de grano grueso
@@ -708,11 +854,26 @@ $\Theta(m E n d h)$, la profundidad $\Theta(E n d h+\log m)$ y el límite de par
 que es aproximadamente $\Theta(m)$ cuando el entrenamiento domina el costo de la
 reducción.
 
-La Beta 1 ya implementa el paralelismo entre semillas, pero conserva dos diferencias
-respecto del PRAM ideal: los datos no se encuentran todavía en memoria compartida literal
-y la selección del máximo se realiza secuencialmente en el maestro. Estas diferencias se
-considerarán explícitamente al interpretar los benchmarks y constituyen los principales
-puntos de mejora para las siguientes versiones.
+En las configuraciones completas medidas ($n=5000$ y $n=10000$), ambas versiones
+seleccionaron la misma semilla y accuracy en las 12 combinaciones $(n,p)$. El speedup
+mediano máximo fue $3.47$ y $3.64$, respectivamente, para $p=32$, muy inferior al ideal
+$32$; la eficiencia cayó a alrededor de $11\%$. La Beta 1 aporta aceleración para la
+carga medida, pero no escala linealmente. La máquina dispone de 8 CPU lógicas, mientras
+que $p=16$ y $p=32$ sobreasignan procesos. La alta dispersión del baseline en
+$n=5000,p=8$ limita la confianza en ese punto y motiva repetirlo en un entorno más
+controlado.
+
+La comparación experimental cubre el mismo workload secuencial y paralelo para cada
+$(n,p)$, pero usa $m=p$: al aumentar recursos también aumenta la cantidad de trabajo, por
+lo que no constituye strong scaling de un workload fijo. Los resultados completos para
+$n=20000$ y $n=40000$ quedan pendientes y no se extrapolan desde los tamaños medidos.
+
+La Beta 1 no es una ejecución CREW literal: los workers son procesos separados y el
+maestro selecciona el máximo secuencialmente, con costo $\Theta(m)$ en vez de la reducción
+ideal $\Theta(\log m)$. El movimiento de datos y los costos de creación/scheduling también
+contribuyen al tiempo medido. Finalmente, la accuracy reportada es de selección sobre el
+conjunto test y no una estimación independiente de generalización; ese análisis requeriría
+selección con validación y un test reservado.
 
 % ==================================================
 \section*{Referencias}

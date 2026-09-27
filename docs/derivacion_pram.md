@@ -96,6 +96,19 @@ T_p = O(W/p + D)
 
 La primera expresión representa mejor la planificación de `m` tareas independientes; la segunda es una cota general.
 
+Esta expresión supone una reducción en árbol. Beta 1 implementa `max(resultados, ...)`
+en el proceso maestro, de costo `Theta(m)`, y además tiene overhead de creación de
+procesos y transferencia de datos. Para interpretar la implementación real debe
+considerarse:
+
+```text
+T_Beta1(m,p) = T_setup(p,n) + ceil(m/p)*C + Theta(m) + T_comunicacion(p,n)
+```
+
+`T_setup` incluye la partición train/test y el ciclo de vida del pool; la transferencia
+depende del método de inicio de procesos y del sistema operativo. Son costos
+experimentales, no términos del PRAM abstracto.
+
 ---
 
 ## 7. Caso particular del enunciado: m = p
@@ -141,6 +154,22 @@ Ef(p) ≈ 1
 
 Esto representa el comportamiento ideal del modelo PRAM y no incluye overheads de procesos, serialización, memoria, scheduler ni bibliotecas numéricas.
 
+En la Beta 1 concreta se reemplaza el costo logarítmico de reducción por `Theta(p)`.
+La aproximación ideal `S(p) ≈ p*C/(C+log p)` requiere que el entrenamiento domine la
+reducción y omite los overheads; no debe presentarse como predicción directa de los
+tiempos observados.
+
+### Alcance de C para scikit-learn
+
+`C=Theta(E*n*d*h)` es el modelo de costo proporcionado por el enunciado. Para la
+implementación, una época de una MLP densa de arquitectura fija cuesta
+aproximadamente `Theta(n * sum_l(w_(l-1)*w_l))`, por lo que es lineal en `n` al mantener
+fijas las capas. El `max_iter=200` predeterminado de `MLPClassifier` es un máximo y el
+entrenamiento puede detenerse antes por convergencia; por ello el número efectivo de
+épocas puede variar por semilla. En las conclusiones, `C` debe entenderse como una
+abstracción uniforme del análisis, mientras los tiempos corresponden a la configuración
+real y su criterio de parada.
+
 ---
 
 ## 8. Diferencia con la Beta 1 implementada
@@ -173,5 +202,18 @@ Solo entonces:
 ```text
 S(p) = T_seq(m=p) / T_par(m=p,p)
 ```
+
+El benchmark comparable está en `benchmarks/run_experiments.py`. El generador de datos
+se ejecuta una vez por `n` fuera de la región cronometrada; la división train/test se
+incluye tanto en Beta 0 como en Beta 1. La campaña controla los hilos internos BLAS/OpenMP
+a uno por proceso y registra mediciones por repetición, un resumen estadístico y
+metadatos de hardware/software. Los speedups agregados se derivan de cocientes emparejados
+por repetición; eficiencia es `S/p`, donde `p` son procesos configurados y puede superar
+los procesadores lógicos disponibles.
+
+La accuracy usada para escoger la semilla se calcula sobre el conjunto test en el
+algoritmo vigente. Como el ganador se escoge con esa misma métrica, su accuracy no debe
+interpretarse como estimación independiente de generalización; para ello se necesitaría
+validación para la selección y un test reservado para la evaluación final.
 
 compara la misma cantidad de trabajo.

@@ -189,7 +189,11 @@ No se debe calcular `S(p)` dividiendo el tiempo de `p=1` entre la ejecución con
 
 `MLPClassifier` depende de NumPy/SciPy y las bibliotecas BLAS pueden crear hilos internos. Si cada proceso usa varios hilos internos, se produce oversubscription y `p` deja de representar correctamente el número de recursos externos.
 
-Antes de los benchmarks finales se debe limitar el paralelismo interno (por ejemplo, mediante variables `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS` o `threadpoolctl`) y documentar la configuración utilizada.
+`benchmarks/run_experiments.py` limita OpenMP/BLAS a un hilo por proceso mediante variables de entorno y `threadpoolctl`; registra los valores y las bibliotecas numéricas detectadas en el archivo JSON de metadatos. `p` siempre denota procesos solicitados, por lo que si excede los procesadores lógicos disponibles habrá contención del sistema operativo.
+
+La campaña mide Beta 0 y Beta 1 para el mismo dataset y las mismas `m=p` semillas. Se excluye la generación del dataset de la región cronometrada, pero se incluyen split, entrenamientos, selección del ganador y ciclo de vida del pool en las dos versiones. El orden secuencial/paralelo se alterna por repetición; los datos sin procesar se conservan en `results/raw/experimentos.csv` y el resumen se genera en `results/processed/resumen.csv`.
+
+La campaña ejecutada se cerró luego de completar todas las combinaciones para `n_samples=5000` y `10000` con tres repeticiones. Sus archivos son `results/raw/experimentos_n5000_10000.csv` y `results/processed/resumen_n5000_10000.csv`; las mediciones parciales de `n=20000` se conservan en `results/raw/experimentos_interrumpidos.csv`. Los tamaños `20000` y `40000` no forman parte de las conclusiones cuantitativas.
 
 ---
 
@@ -197,7 +201,7 @@ Antes de los benchmarks finales se debe limitar el paralelismo interno (por ejem
 
 Se mantiene la decisión de usar un dataset sintético con `make_classification`, porque permite fijar exactamente `n_samples` y repetir la misma distribución de datos para todas las configuraciones.
 
-La Beta 1 actual usa de forma provisional:
+La campaña registrada usa:
 
 - `n_features = 20`;
 - `n_informative = 15`;
@@ -206,7 +210,7 @@ La Beta 1 actual usa de forma provisional:
 - `test_size = 0.2`;
 - `split_seed = 0`.
 
-Estos parámetros deben permanecer fijos durante la campaña experimental final, salvo acuerdo explícito del equipo antes de medir.
+Estos parámetros permanecen fijos durante la campaña experimental.
 
 ---
 
@@ -221,6 +225,10 @@ learning_rate_init = 1e-3
 max_iter           = 200
 ```
 
-`MLPClassifier` usa su solver por defecto si no se especifica otro. Por ello, el informe no debe afirmar todavía que se usa SGD ni una única capa oculta hasta que el equipo modifique explícitamente el código y congele la configuración final.
+`MLPClassifier` usa su solver por defecto (`adam`) porque el código no especifica otro.
+Si se modifican arquitectura o hiperparámetros, se debe iniciar una campaña separada y no
+mezclar las mediciones.
 
 La complejidad `Θ(E*n*d*h)` se conserva en el informe como **modelo de costo indicado por el enunciado**, y no como una derivación exacta de la implementación interna de scikit-learn.
+
+En particular, `max_iter` es un máximo y scikit-learn puede detenerse antes por convergencia; los modelos pueden tener distintos números efectivos de épocas. La accuracy usada para elegir el ganador se calcula sobre el conjunto llamado test, por lo que no debe presentarse como estimación independiente de generalización. Una evaluación rigurosa para generalización requeriría seleccionar con validación y medir en un test reservado.
