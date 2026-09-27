@@ -606,14 +606,13 @@ OpenMP/BLAS a un hilo por proceso con \texttt{threadpoolctl}
 \cite{threadpoolctl} y alterna el orden secuencial/paralelo entre repeticiones para
 reducir sesgos por orden de ejecución.
 
-La campaña ejecutada en este equipo se detuvo por el costo de cómputo antes de completar
-$n=20000$ y $n=40000$. Los resultados completos para $n\in\{5000,10000\}$ y todos los
-valores de $p$, con tres repeticiones por configuración, se conservan en
-\texttt{results/raw/experimentos\_n5000\_10000.csv},
-\texttt{results/processed/resumen\_n5000\_10000.csv} y su archivo de metadatos. El CSV
-interrumpido completo (\texttt{results/raw/experimentos\_interrumpidos.csv}), que incluye
-las mediciones parciales de $n=20000$, se archiva por separado y no se usa para las
-gráficas ni las conclusiones cuantitativas.
+La campaña cuyos resultados se presentan aquí cubrió $n\in\{5000,10000\}$ y todos los
+valores de $p$, con tres repeticiones por configuración. Sus archivos son
+\texttt{results/raw/experimentos\_5000y10000.csv},
+\texttt{results/processed/resumen\_experimentos.csv} y
+\texttt{results/raw/experimentos\_5000y10000.metadata.json}. Las mediciones parciales
+de una ejecución anterior para $n=20000$ se conservan separadamente y no se mezclan con
+esta campaña ni con sus gráficas.
 
 % ==================================================
 \section{Metodología experimental}
@@ -627,11 +626,11 @@ versiones de Python, NumPy, scikit-learn y \texttt{threadpoolctl}, método de in
 procesos y bibliotecas numéricas detectadas. Estos metadatos son necesarios para que la
 comparación pueda interpretarse y repetirse en el mismo entorno.
 
-La medición disponible se ejecutó en Linux sobre un Intel Core i5-1135G7 @ 2.40 GHz,
-con 8 CPU lógicas y 12.25 GB de memoria reportada por el sistema. El entorno fue Python
-3.12.3, NumPy 2.5.3, scikit-learn 1.9.1 y \texttt{threadpoolctl} 3.7.0; OpenBLAS y
-OpenMP quedaron limitados a un hilo por proceso. Los detalles completos, incluidas las
-bibliotecas nativas detectadas, están en los metadatos JSON.
+La campaña actual se ejecutó en Linux con 8 CPU lógicas; el metadata registra Python
+3.12.3, NumPy 2.5.3 y scikit-learn 1.9.1. Se limitó el paralelismo de bibliotecas
+numéricas mediante \texttt{threadpoolctl}. Las tres repeticiones procesan primero el modo
+secuencial y luego el paralelo; por lo tanto, el orden no está alternado entre
+repeticiones.
 
 El dataset sintético es apropiado para este objetivo porque permite fijar exactamente el
 número de muestras sin introducir cambios de distribución entre valores de $p$. La Beta
@@ -686,34 +685,34 @@ siguiente presenta las medianas del speedup emparejado:
 \toprule
 $n$ & $p=1$ & $p=2$ & $p=4$ & $p=8$ & $p=16$ & $p=32$ \\
 \midrule
-5000  & 0.98 & 1.73 & 2.86 & 3.30 & 3.31 & 3.47 \\
-10000 & 1.03 & 1.62 & 2.66 & 2.99 & 3.11 & 3.64 \\
+5000  & 0.99 & 1.88 & 3.38 & 3.34 & 2.99 & 2.84 \\
+10000 & 0.97 & 1.80 & 3.05 & 2.70 & 2.83 & 2.85 \\
 \bottomrule
 \end{tabular}
 \caption{Mediana del speedup experimental para el workload equivalente $m=p$.}
 \label{tab:speedup-campana}
 \end{table}
 
-El mayor speedup observado en el subconjunto completo es $3.47$ para
-$n=5000,p=32$ y $3.64$ para $n=10000,p=32$. Sin embargo, la eficiencia correspondiente
-es solo $10.9\%$ y $11.4\%$: se crean 32 procesos en un equipo con 8 CPU lógicas, por lo
-que el número de workers supera los recursos de hardware disponibles y aumenta la
-contención. El speedup crece al incluir más modelos en el baseline secuencial, pero el
-tiempo paralelo también aumenta porque el workload cambia junto con $p$; estos puntos no
-representan strong scaling de un problema fijo.
+El mayor speedup mediano en ambos tamaños ocurre en $p=4$: $3.38$ para $n=5000$ y
+$3.05$ para $n=10000$, con eficiencias respectivas de $84.5\%$ y $76.3\%$. Para $p=32$,
+el speedup cae a $2.84$ y $2.85$, con eficiencias de aproximadamente $8.9\%$ en ambos
+casos. Se crean 32 procesos en un equipo con 8 CPU lógicas, por lo que la sobreasignación
+es una explicación plausible de parte de la pérdida, aunque la medición no separa los
+costos de contención de otros overheads. Como $m=p$, cada punto aumenta también el
+número de modelos del workload; no es strong scaling de un problema fijo.
 
-Para ambos tamaños, las medianas indican beneficio claro desde $p=2$, pero el speedup
-queda muy por debajo del ideal lineal. Entre $p=8$ y $p=32$ la eficiencia cae a menos de
-aproximadamente $42\%$, y el tiempo paralelo mediano no disminuye monótonamente. Esto es
-consistente con costos de creación/planificación de procesos, transferencia de arrays,
-reducción secuencial en el maestro y sobreasignación respecto de las 8 CPU lógicas. No se
-atribuye la desviación a una causa única que el benchmark no mida por separado.
+Para ambos tamaños hay aceleración mediana desde $p=2$, pero el speedup queda por debajo
+del ideal lineal. El mejor punto es $p=4$ y el speedup no mejora de manera monótona al
+aumentar $p$; el tiempo paralelo mediano también sube notablemente de $p=8$ a $p=16$.
+Este comportamiento es compatible con costos de creación/planificación de procesos,
+transferencia de arrays, reducción secuencial en el maestro y sobreasignación respecto
+de las 8 CPU lógicas. La campaña no descompone esos costos, por lo que no se atribuye la
+diferencia a una única causa.
 
-Hay dos cautelas en la lectura: para $n=5000,p=8$ el tiempo secuencial presenta una
-desviación estándar alta ($20.00$ s) y el speedup también dispersa ($0.77$), por lo que
-ese punto es inestable y no sustenta por sí solo una tendencia; además, para
-$n=10000,p=1$ la mediana $S=1.03$ apenas supera uno y no debe interpretarse como
-speedup superlineal, pues su dispersión es comparable al incremento. La accuracy de
+Las repeticiones son relativamente estables en los puntos medidos; por ejemplo, para
+$n=5000,p=8$ la desviación estándar del speedup es $0.09$ y la del tiempo secuencial
+$0.04$ s. Para $p=1$, el speedup mediano queda levemente por debajo de uno en ambos
+tamaños ($0.99$ y $0.97$), lo que concuerda con el overhead del pool. La accuracy de
 selección pasa de $0.963$ a $0.970$ para $n=5000$ y de $0.969$ a $0.9745$ para
 $n=10000$ al crecer $p$; como $m=p$ y la semilla ganadora se elige con la misma
 partición test, el aumento refleja también más inicializaciones candidatas y no prueba
@@ -738,28 +737,28 @@ añaden creación de procesos, comunicación/copia de datos y planificación. Co
 cada punto incrementa simultáneamente el trabajo y los recursos; este diseño compara el
 speedup del workload de $p$ modelos y no es strong scaling de un workload fijo.
 
-\IfFileExists{figures/tiempo.png}{
+\IfFileExists{figures_actualizadas/tiempo.png}{
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.8\textwidth]{figures/tiempo.png}
+    \includegraphics[width=0.8\textwidth]{figures_actualizadas/tiempo.png}
     \caption{Tiempos medianos secuenciales y paralelos frente a $p$ para cada $n$;
     barras de error de una desviación estándar muestral.}
 \end{figure}
 }{}
 
-\IfFileExists{figures/speedup.png}{
+\IfFileExists{figures_actualizadas/speedup.png}{
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.8\textwidth]{figures/speedup.png}
+    \includegraphics[width=0.8\textwidth]{figures_actualizadas/speedup.png}
     \caption{Mediana del speedup emparejado por repetición; la línea punteada
     representa el ideal $S=p$ y las barras muestran una desviación estándar muestral.}
 \end{figure}
 }{}
 
-\IfFileExists{figures/eficiencia.png}{
+\IfFileExists{figures_actualizadas/eficiencia.png}{
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.8\textwidth]{figures/eficiencia.png}
+    \includegraphics[width=0.8\textwidth]{figures_actualizadas/eficiencia.png}
     \caption{Eficiencia mediana $E_f=S/p$; las barras muestran una desviación
     estándar muestral de la eficiencia por repetición.}
 \end{figure}
@@ -856,12 +855,10 @@ reducción.
 
 En las configuraciones completas medidas ($n=5000$ y $n=10000$), ambas versiones
 seleccionaron la misma semilla y accuracy en las 12 combinaciones $(n,p)$. El speedup
-mediano máximo fue $3.47$ y $3.64$, respectivamente, para $p=32$, muy inferior al ideal
-$32$; la eficiencia cayó a alrededor de $11\%$. La Beta 1 aporta aceleración para la
-carga medida, pero no escala linealmente. La máquina dispone de 8 CPU lógicas, mientras
-que $p=16$ y $p=32$ sobreasignan procesos. La alta dispersión del baseline en
-$n=5000,p=8$ limita la confianza en ese punto y motiva repetirlo en un entorno más
-controlado.
+mediano máximo fue $3.38$ y $3.05$, respectivamente, para $p=4$; aumentar $p$ a 32 no
+mejoró el speedup y redujo la eficiencia a alrededor de $9\%$. La Beta 1 acelera las
+cargas medidas para $p\geq2$, pero no escala linealmente. La máquina dispone de 8 CPU
+lógicas, mientras que $p=16$ y $p=32$ sobreasignan procesos.
 
 La comparación experimental cubre el mismo workload secuencial y paralelo para cada
 $(n,p)$, pero usa $m=p$: al aumentar recursos también aumenta la cantidad de trabajo, por
