@@ -1,0 +1,18 @@
+{
+  "timestamp_utc": "2026-09-27T06:57:56.095680+00:00",
+  "python_version": "3.12.3",
+  "platform": "Linux-7.0.0-34-generic-x86_64-with-glibc2.39",
+  "cpu_count": 8,
+  "numpy_version": "2.5.3",
+  "sklearn_version": "1.9.1",
+  "p_values": [
+    4,
+    8,
+    16,
+    32
+  ],
+  "n_samples_values": [
+    40000
+  ],
+  "repetitions": 1
+}
