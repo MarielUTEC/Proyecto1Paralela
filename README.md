@@ -10,56 +10,39 @@ Proyecto parcial del curso **Computación Paralela y Distribuida** (UTEC, 2026-I
 
 ## Objetivo
 
-Diseñar y evaluar una paralelización PRAM del entrenamiento de múltiples redes neuronales MLP inicializadas con semillas diferentes. La estrategia principal explota el paralelismo **entre entrenamientos independientes**: cada worker entrena un modelo con una semilla distinta y, al finalizar, se selecciona el modelo con mayor accuracy.
+Implementar y comparar el entrenamiento de varios clasificadores MLP inicializados con semillas diferentes. Cada entrenamiento es independiente; se ejecuta una vez por semilla y luego se selecciona el modelo con mayor accuracy.
 
-El costo base indicado por el enunciado para entrenar un modelo se representa como:
+El modelo de costo del enunciado para un entrenamiento es:
 
-`C(n,d,h,E) = Θ(E*n*d*h)`
+```text
+C(n,d,h,E) = Θ(E*n*d*h)
+```
 
-Para evitar mezclar tamaño del problema y recursos, en la documentación se distinguen:
+La documentación separa:
 
-- `m = |S|`: número de semillas/modelos que forman el workload.
-- `p`: número de procesadores/workers utilizados para ejecutar el workload.
+- `m`: cantidad de semillas/modelos que forman el workload.
+- `p`: cantidad de procesos/workers disponibles.
 
-El enunciado usa como caso particular `S={0,...,p-1}`, es decir, `m=p`. Para el análisis formal se mantienen `m` y `p` separados y luego se especializa al caso `m=p`.
+El caso experimental de este repositorio usa `m=p`, con semillas `0,...,p-1`. La Beta 0 ejecuta esas semillas en secuencia; la Beta 1 usa `multiprocessing.Pool`. El diseño CREW-PRAM y su análisis se explican en [docs/decisiones.md](docs/decisiones.md) y [docs/derivacion_pram.md](docs/derivacion_pram.md).
 
-## Modelo PRAM elegido
+> CREW es el modelo teórico, no una garantía de memoria compartida en la implementación Python. La Beta 1 paraleliza los entrenamientos por procesos y hace la selección final con `max` secuencial en el proceso maestro.
 
-Se usa **CREW-PRAM (Concurrent Read, Exclusive Write)** como modelo teórico:
+## Estado del código y los resultados
 
-- los workers pueden leer concurrentemente el mismo dataset e hiperparámetros;
-- cada entrenamiento mantiene estado mutable propio (modelo, pesos, accuracy);
-- cada worker escribe su resultado en un slot exclusivo;
-- la selección teórica del mejor modelo se realiza mediante una reducción en árbol de profundidad `Θ(log m)`.
-
-No se necesita CRCW porque el diseño evita escrituras simultáneas sobre una misma posición. EREW sería posible con replicación o planificación adicional de lecturas, pero CREW representa de forma más natural el patrón de acceso deseado.
-
-> **Importante:** CREW es el modelo teórico. La Beta 1 usa `multiprocessing.Pool`; en Windows los arrays enviados a workers se serializan/copian, por lo que la implementación actual no constituye memoria compartida CREW literal. Ese costo forma parte del overhead experimental de la Beta 1.
-
-## Estado actual
-
-- ✅ Estructura del repositorio.
-- ✅ Decisiones de diseño documentadas.
-- ✅ Beta 1 paralela por semillas (`src/beta1_parallel.py`).
-- ✅ Automatización inicial de tiempos (`benchmarks/run_benchmarkB1.py`).
-- ✅ Derivación PRAM documentada (`docs/derivacion_pram.md`).
-- ✅ Informe LaTeX integrado (`report/main.tex`).
-- ✅ Beta 0 secuencial completa para m semillas.
-- ✅ Campaña reproducible de Beta 0 vs Beta 1 (`benchmarks/run_experiments.py`).
-- ✅ Resumen de speedup/eficiencia y gráficas desde los resultados (`plots/plot_results.py`).
-- ⚠️ La Beta 1 conserva reducción secuencial en el maestro; no equivale a la reducción PRAM en árbol.
-- ✅ Medidas completas para todos los p con n=5000 y n=10000 (3 repeticiones).
-- ⏳ n=20000 y n=40000 pendientes; la ejecución parcial se conserva como archivo de auditoría.
+- Baseline secuencial para `m` semillas: [src/beta0_sequential.py](src/beta0_sequential.py).
+- Entrenamiento paralelo configurable mediante `p`: [src/beta1_parallel.py](src/beta1_parallel.py).
+- Benchmark comparativo secuencial/paralelo: [benchmarks/run_experiments.py](benchmarks/run_experiments.py).
+- Generación de gráficas desde el resumen CSV: [plots/plot_results.py](plots/plot_results.py).
+- Comparaciones completas para `n_samples=5000` y `10000`, con `p={1,2,4,8,16,32}` y tres repeticiones.
+- Las combinaciones para `n_samples=20000` y `40000` están pendientes.
 
 ## Estructura
 
 ```text
-pram-mlp-training/
-├── README.md
-├── requirements.txt
+.
 ├── benchmarks/
-│   ├── run_benchmarkB1.py
-│   └── run_experiments.py
+│   ├── run_benchmarkB1.py       # benchmark previo: solo Beta 1
+│   └── run_experiments.py       # comparación Beta 0 vs. Beta 1
 ├── docs/
 │   ├── decisiones.md
 │   └── derivacion_pram.md
@@ -68,92 +51,128 @@ pram-mlp-training/
 ├── report/
 │   ├── main.tex
 │   ├── references.bib
-│   └── figures/
+│   └── figures_actualizadas/    # gráficas de la última campaña
 ├── results/
-│   ├── raw/       # mediciones individuales y metadatos
-│   └── processed/ # resumen estadístico
+│   ├── raw/                     # mediciones individuales y metadatos
+│   └── processed/               # resúmenes estadísticos
 └── src/
     ├── beta0_sequential.py
     ├── beta1_parallel.py
-    ├── beta2_benchmark.py
-    └── common.py
+    ├── beta2_benchmark.py        # vacío, aún sin implementar
+    └── common.py                 # vacío, aún sin implementar
 ```
 
-## Instalación
+## Requisitos e instalación
+
+Se requiere Python 3 y las dependencias declaradas en [requirements.txt](requirements.txt):
 
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-En Windows, use `.venv\Scripts\python.exe` en lugar de `.venv/bin/python`.
-## Ejecución de Beta 0
+En Windows, usa `.venv\Scripts\python.exe` en lugar de `.venv/bin/python`.
 
-La Beta 0 entrena secuencialmente las mismas `m` semillas que Beta 1
-ejecuta en paralelo. En el experimento se utiliza `m=p` para comparar
-workloads equivalentes.
+## Ejecutar las versiones
 
 Desde la raíz del repositorio:
 
 ```bash
+# Beta 0: entrena p=m semillas secuencialmente
 .venv/bin/python src/beta0_sequential.py --p 4 --n_samples 5000
-```
 
-## Ejecución de Beta 1
-
-Desde la raíz del repositorio:
-
-```bash
+# Beta 1: entrena p semillas con p procesos
 .venv/bin/python src/beta1_parallel.py --p 4 --n_samples 5000
 ```
 
-La Beta 1 actual interpreta `p` simultáneamente como número de workers y, siguiendo el caso particular del enunciado, número de semillas (`m=p`).
+Ambos programas generan los datos con `make_classification` (20 features, 15 informativas, clasificación binaria, `random_state=42`), usan una partición test del 20% con `split_seed=0` y asignan `random_state=seed` a cada MLP. La arquitectura e hiperparámetros por defecto son `hidden_layer_sizes=(10,10)`, `alpha=1e-4`, `learning_rate_init=1e-3` y `max_iter=200`. El solver no se especifica explícitamente; se usa el valor predeterminado de scikit-learn.
 
-## Benchmark inicial Beta 1
+## Experimentos comparativos
 
-```bash
-.venv/bin/python benchmarks/run_benchmarkB1.py --p 1 2 4 8 --n_samples 5000 10000 --repeticiones 3
+[run_experiments.py](benchmarks/run_experiments.py) compara Beta 0 y Beta 1 con el mismo dataset, el mismo conjunto de `m=p` semillas y los mismos hiperparámetros. Los valores predeterminados son:
+
+```text
+p            = {1, 2, 4, 8, 16, 32}
+n_samples    = {5000, 10000, 20000, 40000}
+repeticiones = 3
 ```
 
-El benchmark de Beta 1 **mide tiempos paralelos**, pero todavía no debe usarse por sí solo para calcular speedup final.
+Para cada `n`, el dataset se genera fuera de la región cronometrada. La medición incluye la partición train/test y los entrenamientos; en Beta 1 incluye también el ciclo de vida del pool y la selección del ganador. En cada repetición se ejecuta primero la versión secuencial y luego la paralela. `threadpoolctl` limita a un hilo las bibliotecas numéricas durante la medición.
 
-### Regla para speedup
-
-Si se usa el caso del enunciado `m=p`, cada punto cambia también el número de modelos. Por eso el tiempo secuencial de referencia para un valor dado de `p` debe entrenar **las mismas `m=p` semillas secuencialmente**:
-
-`S(p) = T_seq(m=p) / T_parallel(m=p, p)`
-
-No es correcto usar el tiempo de `p=1` (un solo modelo) como baseline de una ejecución con `p>1` modelos.
-
-## Campaña experimental comparable
-
-El benchmark comparable mide Beta 0 y Beta 1 para las mismas `p` semillas, datos y configuración. Por defecto recorre todos los valores del proyecto (`p={1,2,4,8,16,32}`, `n_samples={5000,10000,20000,40000}`) con tres repeticiones. Los datos generados se excluyen del cronómetro; división train/test, entrenamiento, creación/cierre del pool y selección del ganador sí se miden. Se alterna el orden secuencial/paralelo entre repeticiones.
+Ejecutar la matriz predeterminada:
 
 ```bash
 .venv/bin/python benchmarks/run_experiments.py
-.venv/bin/python plots/plot_results.py
 ```
 
-Una campaña nueva completa usa por defecto `p={1,2,4,8,16,32}`, `n_samples={5000,10000,20000,40000}` y tres repeticiones. Guarda cada medición en `results/raw/experimentos.csv`, el resumen en `results/processed/resumen.csv` y el hardware/software e hiperparámetros en `results/raw/experimentos.metadata.json`. El resumen reporta mediana, promedio y desviación estándar muestral de tiempos, además de speedup por repetición emparejada y eficiencia mediana. Las gráficas se escriben en `report/figures/`.
+El programa escribe:
 
-Los resultados completos disponibles en esta revisión cubren todos los valores de p para `n_samples=5000` y `10000`: [experimentos_n5000_10000.csv](results/raw/experimentos_n5000_10000.csv), [resumen_n5000_10000.csv](results/processed/resumen_n5000_10000.csv) y [metadatos](results/raw/experimentos_n5000_10000.metadata.json). La campaña mayor se detuvo por costo de cómputo; sus mediciones parciales de `n=20000` están preservadas separadamente y no se usan en el resumen ni en las gráficas: [experimentos_interrumpidos.csv](results/raw/experimentos_interrumpidos.csv).
+- `results/raw/experimentos.csv`: ejecuciones individuales con tiempos, accuracy y semilla ganadora.
+- `results/processed/resumen.csv`: medianas, medias, desviaciones estándar muestrales, speedup emparejado y eficiencia.
+- `results/raw/experimentos.metadata.json`: timestamp, plataforma, cantidad de CPU lógicas, versiones de Python/NumPy/scikit-learn y parámetros de la campaña.
 
-Para volver a generar las figuras a partir de las mediciones completas disponibles:
+Si los archivos de salida ya existen, el programa se detiene para evitar sobrescribirlos. Usa `--overwrite` solo si se desea reemplazar esa campaña.
+
+Para ejecutar un subconjunto en rutas propias:
+
+```bash
+.venv/bin/python benchmarks/run_experiments.py \
+  --p 1 2 4 8 16 32 \
+  --n_samples 5000 10000 \
+  --repeticiones 3 \
+  --raw_out results/raw/experimentos_n5000_10000.csv \
+  --summary_out results/processed/resumen_experimentos.csv
+```
+
+El archivo JSON de metadatos se genera junto al CSV raw con el mismo nombre base y sufijo `.metadata.json`.
+
+### Métricas y significado de `p`
+
+Cada repetición se compara con el mismo workload:
+
+```text
+T_seq(n,p) = tiempo secuencial de las semillas 0,...,p-1
+T_par(n,p) = tiempo paralelo de esas mismas p semillas
+S(n,p)     = T_seq(n,p) / T_par(n,p)
+E_f(n,p)   = S(n,p) / p
+```
+
+El resumen reporta la mediana de los speedups calculados por repetición emparejada. Como `m=p`, al aumentar `p` también aumenta el número de modelos. Esta campaña **no es strong scaling de un workload fijo**. `p` es el número de procesos solicitado y puede exceder las CPU disponibles.
+
+## Resultados disponibles
+
+La campaña completa disponible cubre `n_samples=5000` y `10000`, todos los valores de `p` y tres repeticiones por configuración:
+
+- Datos sin procesar: [experimentos_5000y10000.csv](results/raw/experimentos_5000y10000.csv).
+- Resumen utilizado para las gráficas: [resumen_experimentos.csv](results/processed/resumen_experimentos.csv).
+- Metadatos de la campaña: [experimentos_5000y10000.metadata.json](results/raw/experimentos_5000y10000.metadata.json).
+- Datos parciales de un intento anterior, archivados y excluidos del resumen: [experimentos_interrumpidos.csv](results/raw/experimentos_interrumpidos.csv).
+
+Los speedups medianos de la campaña vigente son:
+
+| `n_samples` | p=1 | p=2 | p=4 | p=8 | p=16 | p=32 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 5000 | 0.99 | 1.88 | **3.38** | 3.34 | 2.99 | 2.84 |
+| 10000 | 0.97 | 1.80 | **3.05** | 2.70 | 2.83 | 2.85 |
+
+El máximo mediano se observa en `p=4` para ambos tamaños. La eficiencia en ese punto es aproximadamente 84.5% para `n=5000` y 76.3% para `n=10000`, para `p=32` cae a cerca de 8.9%. El equipo en el que se ejecutó el experimentos tiene 8 CPU, por lo que `p=16` y `p=32` sobreasignan procesos. Estos resultados no permiten sacar conclusiones para `n=20000` ni `n=40000`. (No pude acceder a Khipu por problemas de credenciales y bloqueó mi puerto)
+
+La accuracy usada para elegir la semilla ganadora se mide sobre el conjunto llamado test. Por tanto, es una métrica de selección, no una evaluación imparcial de generalización. Las repeticiones mantienen fijos datos y semillas para medir variación de tiempo de ejecución, no incertidumbre de accuracy.
+
+## Generar las gráficas
+
+`run_experiments.py` genera CSV y metadatos, pero **no genera imágenes**. Para producir las figuras desde un resumen se pone el siguiente comando:
 
 ```bash
 .venv/bin/python plots/plot_results.py \
-  --summary results/processed/resumen_n5000_10000.csv
+  --summary results/processed/resumen_experimentos.csv \
+  --output_dir report/figures_actualizadas
 ```
 
-Para probar un subconjunto o reducir el costo inicial:
+Se generan `tiempo.png`, `speedup.png` y `eficiencia.png` dentro de la carpeta de salida. Las figuras de la última campaña están en [report/figures_actualizadas](report/figures_actualizadas).
+
+Para usar las rutas predeterminadas, que esperan `results/processed/resumen.csv` y escriben en `report/figures/`:
 
 ```bash
-.venv/bin/python benchmarks/run_experiments.py --p 1 2 4 --n_samples 5000 10000 --repeticiones 2 \
-  --raw_out results/raw/piloto.csv --summary_out results/processed/piloto.csv
-.venv/bin/python plots/plot_results.py --summary results/processed/piloto.csv \
-  --output_dir results/processed/figuras_piloto
+.venv/bin/python plots/plot_results.py
 ```
-
-Los archivos de salida existentes no se sobrescriben salvo que se indique `--overwrite`. Cada fila raw se vacía a disco inmediatamente, para preservar mediciones si la campaña se interrumpe. El paralelismo interno OpenMP/BLAS se fija a un hilo por proceso y esa configuración queda registrada. `p` es el número de procesos solicitado, no una garantía de disponer de igual cantidad de CPU físicas; se debe discutir el efecto si `p` supera los procesadores lógicos disponibles.
-
-La accuracy registrada es la del modelo ganador, seleccionado usando la partición test según el algoritmo del curso. Por ello debe interpretarse como métrica de selección y no como estimación imparcial de generalización; una evaluación metodológicamente más sólida elegiría la semilla en validación y reservaría test para una única evaluación final. Las repeticiones conservan datos y semillas para medir ruido de ejecución, no incertidumbre estadística de accuracy.
