@@ -117,6 +117,14 @@ repeticiones = 3
 
 Para cada `n`, el dataset se genera fuera de la región cronometrada. La medición incluye la partición train/test y los entrenamientos; en Beta 1 incluye también el ciclo de vida del pool y la selección del ganador. En cada repetición se ejecuta primero la versión secuencial y luego la paralela. `threadpoolctl` limita a un hilo las bibliotecas numéricas durante la medición.
 
+### Campaña final (strong scaling, `m=32` fijo)
+
+```bash
+.venv/bin/python benchmarks/run_experiments.py --m 32 --p 1 2 4 8 16 32 --n_samples 5000 10000 20000 --repeticiones 3
+```
+
+Compara Beta 0 y Beta 2 con las mismas 32 semillas para todos los `p`. Escribe `results/raw/campana_final_m32.csv`, `results/processed/resumen_campana_final_m32.csv` y su archivo de metadatos. Verifica en cada repetición que el paralelo coincida con el secuencial y registra las fases de overhead y el `n_iter_` por semilla.
+
 Ejecutar la matriz predeterminada:
 
 ```bash
