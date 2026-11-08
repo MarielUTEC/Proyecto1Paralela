@@ -23,18 +23,22 @@ La documentación separa:
 - `m`: cantidad de semillas/modelos que forman el workload.
 - `p`: cantidad de procesos/workers disponibles.
 
-El caso experimental de este repositorio usa `m=p`, con semillas `0,...,p-1`. La Beta 0 ejecuta esas semillas en secuencia; la Beta 1 usa `multiprocessing.Pool`. El diseño CREW-PRAM y su análisis se explican en [docs/decisiones.md](docs/decisiones.md) y [docs/derivacion_pram.md](docs/derivacion_pram.md).
+La implementación final (**Beta 2**) paraleliza directamente sobre las semillas (`for s ∈ S pardo`) con `m` fijo y `p` configurable. El diseño CREW-PRAM y su análisis se explican en [docs/decisiones.md](docs/decisiones.md) y [docs/derivacion_pram.md](docs/derivacion_pram.md).
 
-> CREW es el modelo teórico, no una garantía de memoria compartida en la implementación Python. La Beta 1 paraleliza los entrenamientos por procesos y hace la selección final con `max` secuencial en el proceso maestro.
+> **Modelo de memoria implementado:** procesos + `multiprocessing.shared_memory`. El dataset vive en un segmento compartido de solo lectura (lectura concurrente) y cada semilla escribe solo en su posición de los arreglos compartidos `Acc[s]`, `n_iter[s]`, `t_seed[s]` y `Mod[s]` (escritura exclusiva). Los workers siguen siendo procesos del sistema operativo, por lo que es una aproximación de CREW y no una PRAM literal. La selección final se hace por rondas (árbol binario) en el proceso maestro.
+
+Las versiones anteriores se conservan como referencia: Beta 0 (baseline secuencial) y Beta 1 (`Pool` con `m=p`, datos enviados a cada tarea, `max` secuencial).
 
 ## Estado del código y los resultados
 
+- Código compartido (datos, split, entrenamiento de una semilla, reducción): [src/common.py](src/common.py).
 - Baseline secuencial para `m` semillas: [src/beta0_sequential.py](src/beta0_sequential.py).
-- Entrenamiento paralelo configurable mediante `p`: [src/beta1_parallel.py](src/beta1_parallel.py).
-- Benchmark comparativo secuencial/paralelo: [benchmarks/run_experiments.py](benchmarks/run_experiments.py).
+- **Versión paralela final (memoria compartida, `m` y `p` independientes):** [src/beta2_parallel.py](src/beta2_parallel.py).
+- Versión paralela anterior, solo evidencia histórica (`m=p`): [src/beta1_parallel.py](src/beta1_parallel.py).
+- Pruebas de correctitud secuencial vs. paralelo: [tests/test_correctitud.py](tests/test_correctitud.py).
+- Benchmark comparativo: [benchmarks/run_experiments.py](benchmarks/run_experiments.py) (aún por actualizar a Beta 2 con `m` fijo).
 - Generación de gráficas desde el resumen CSV: [plots/plot_results.py](plots/plot_results.py).
-- Comparaciones completas para `n_samples=5000` y `10000`, con `p={1,2,4,8,16,32}` y tres repeticiones.
-- Las combinaciones para `n_samples=20000` y `40000` están pendientes.
+- Campaña preliminar (`m=p`, Beta 0 vs. Beta 1) completa para `n_samples=5000` y `10000`.
 
 ## Estructura
 
@@ -42,7 +46,7 @@ El caso experimental de este repositorio usa `m=p`, con semillas `0,...,p-1`. La
 .
 ├── benchmarks/
 │   ├── run_benchmarkB1.py       # benchmark previo: solo Beta 1
-│   └── run_experiments.py       # comparación Beta 0 vs. Beta 1
+│   └── run_experiments.py       # comparación secuencial vs. paralelo
 ├── docs/
 │   ├── decisiones.md
 │   └── derivacion_pram.md
@@ -55,11 +59,13 @@ El caso experimental de este repositorio usa `m=p`, con semillas `0,...,p-1`. La
 ├── results/
 │   ├── raw/                     # mediciones individuales y metadatos
 │   └── processed/               # resúmenes estadísticos
-└── src/
-    ├── beta0_sequential.py
-    ├── beta1_parallel.py
-    ├── beta2_benchmark.py        # vacío, aún sin implementar
-    └── common.py                 # vacío, aún sin implementar
+├── src/
+│   ├── common.py                # datos, split, entrenamiento, reducción
+│   ├── beta0_sequential.py      # baseline secuencial
+│   ├── beta1_parallel.py        # versión anterior (m=p)
+│   └── beta2_parallel.py        # versión final (memoria compartida)
+└── tests/
+    └── test_correctitud.py
 ```
 
 ## Requisitos e instalación
@@ -78,16 +84,28 @@ En Windows, usa `.venv\Scripts\python.exe` en lugar de `.venv/bin/python`.
 Desde la raíz del repositorio:
 
 ```bash
-# Beta 0: entrena p=m semillas secuencialmente
-.venv/bin/python src/beta0_sequential.py --p 4 --n_samples 5000
+# Beta 0: entrena m semillas secuencialmente
+.venv/bin/python src/beta0_sequential.py --m 32 --n_samples 5000
 
-# Beta 1: entrena p semillas con p procesos
-.venv/bin/python src/beta1_parallel.py --p 4 --n_samples 5000
+# Beta 2: entrena m semillas con p procesos y memoria compartida
+.venv/bin/python src/beta2_parallel.py --m 32 --p 8 --n_samples 5000
 ```
 
-Ambos programas generan los datos con `make_classification` (20 features, 15 informativas, clasificación binaria, `random_state=42`), usan una partición test del 20% con `split_seed=0` y asignan `random_state=seed` a cada MLP. La arquitectura e hiperparámetros por defecto son `hidden_layer_sizes=(10,10)`, `alpha=1e-4`, `learning_rate_init=1e-3` y `max_iter=200`. El solver no se especifica explícitamente; se usa el valor predeterminado de scikit-learn.
+`m` (número de semillas) y `p` (número de procesos) son independientes. Beta 2 imprime el tiempo total y el tiempo por fase: `split`, `shm_setup`, `pool_start`, `map`, `join`, `reduccion` y `shm_cleanup`.
+
+Ambos programas generan los datos con `make_classification` (20 features, 15 informativas, clasificación binaria, `random_state=42`), usan una partición test del 20% con `split_seed=0` y asignan `random_state=seed` a cada MLP. La arquitectura e hiperparámetros por defecto son `hidden_layer_sizes=(10,10)`, `alpha=1e-4`, `learning_rate_init=1e-3` y `max_iter=200`. El solver no se especifica explícitamente; se usa el valor predeterminado de scikit-learn. Las bibliotecas numéricas se limitan a un hilo por proceso.
+
+## Pruebas de correctitud
+
+```bash
+.venv/bin/python -m pip install pytest
+.venv/bin/python -m pytest tests -v
+```
+
+Comparan Beta 0 y Beta 2 con `m=32` y `p ∈ {1,2,4,8}`: misma semilla ganadora, misma accuracy y mismo `n_iter_` por semilla. También cubren la reducción con desempate por menor semilla, `p > m` y el modo `spawn`.
 
 ## Experimentos comparativos
+> **Nota:** esta sección describe la campaña **preliminar** (`m=p`, Beta 0 vs. Beta 1). La campaña final con `m=32` fijo y Beta 2 se documenta cuando se ejecute.
 
 [run_experiments.py](benchmarks/run_experiments.py) compara Beta 0 y Beta 1 con el mismo dataset, el mismo conjunto de `m=p` semillas y los mismos hiperparámetros. Los valores predeterminados son:
 
@@ -141,6 +159,8 @@ El resumen reporta la mediana de los speedups calculados por repetición emparej
 
 ## Resultados disponibles
 
+> Resultados de la campaña preliminar (`m=p`), obtenidos en un equipo local de 8 CPU lógicas. No constituyen strong scaling.
+
 La campaña completa disponible cubre `n_samples=5000` y `10000`, todos los valores de `p` y tres repeticiones por configuración:
 
 - Datos sin procesar: [experimentos_5000y10000.csv](results/raw/experimentos_5000y10000.csv).
@@ -155,7 +175,7 @@ Los speedups medianos de la campaña vigente son:
 | 5000 | 0.99 | 1.88 | **3.38** | 3.34 | 2.99 | 2.84 |
 | 10000 | 0.97 | 1.80 | **3.05** | 2.70 | 2.83 | 2.85 |
 
-El máximo mediano se observa en `p=4` para ambos tamaños. La eficiencia en ese punto es aproximadamente 84.5% para `n=5000` y 76.3% para `n=10000`, para `p=32` cae a cerca de 8.9%. El equipo en el que se ejecutó el experimentos tiene 8 CPU, por lo que `p=16` y `p=32` sobreasignan procesos. Estos resultados no permiten sacar conclusiones para `n=20000` ni `n=40000`. (No pude acceder a Khipu por problemas de credenciales y bloqueó mi puerto)
+El máximo mediano se observa en `p=4` para ambos tamaños. La eficiencia en ese punto es aproximadamente 84.5% para `n=5000` y 76.3% para `n=10000`, para `p=32` cae a cerca de 8.9%. El equipo en el que se ejecutó el experimentos tiene 8 CPU, por lo que `p=16` y `p=32` sobreasignan procesos. Estos resultados no permiten sacar conclusiones para `n=20000` ni `n=40000`.
 
 La accuracy usada para elegir la semilla ganadora se mide sobre el conjunto llamado test. Por tanto, es una métrica de selección, no una evaluación imparcial de generalización. Las repeticiones mantienen fijos datos y semillas para medir variación de tiempo de ejecución, no incertidumbre de accuracy.
 
