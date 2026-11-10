@@ -1,4 +1,4 @@
-# Derivación PRAM — paralelismo entre semillas
+# Derivación PRAM - paralelismo entre semillas
 
 ## 1. Notación
 

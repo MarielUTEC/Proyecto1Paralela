@@ -37,9 +37,6 @@ Las versiones anteriores se conservan como referencia: Beta 0 (baseline secuenci
 - Versión paralela anterior, solo evidencia histórica (`m=p`): [src/beta1_parallel.py](src/beta1_parallel.py).
 - Pruebas de correctitud secuencial vs. paralelo: [tests/test_correctitud.py](tests/test_correctitud.py).
 - Benchmark comparativo final: [benchmarks/run_experiments.py](benchmarks/run_experiments.py) (Beta 0 vs. Beta 2 con `m` fijo).
-- Protocolo de la campaña Windows: [docs/protocolo_experimental.md](docs/protocolo_experimental.md); impacto de las fuentes: [docs/fuentes_impacto_noemi.md](docs/fuentes_impacto_noemi.md).
-- Auditoría de campaña: [benchmarks/validate_campaign.py](benchmarks/validate_campaign.py); bitácora: [docs/bitacora_noemi.md](docs/bitacora_noemi.md).
-- Revisión cruzada: [docs/revision_cruzada_noemi.md](docs/revision_cruzada_noemi.md); preparación oral: [docs/preparacion_oral_noemi.md](docs/preparacion_oral_noemi.md).
 - Generación de gráficas desde el resumen CSV: [plots/plot_results.py](plots/plot_results.py).
 - Campaña final Beta 2 (`m=32` fijo) completa para `n_samples=5000,10000,20000` y `p=1,2,4,8`, con tres repeticiones.
 - Campaña preliminar (`m=p`, Beta 0 vs. Beta 1) completa para `n_samples=5000` y `10000`.

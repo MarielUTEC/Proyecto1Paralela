@@ -1,4 +1,4 @@
-# Decisiones del proyecto — PRAM aplicado a múltiples MLP
+# Decisiones del proyecto - PRAM aplicado a múltiples MLP
 
 ## 1. Baseline del enunciado
 
