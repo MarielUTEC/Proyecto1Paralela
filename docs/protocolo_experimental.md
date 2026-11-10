@@ -1,6 +1,6 @@
 # Protocolo experimental de la campaña final (Noemí)
 
-Estado: preparado para revisión del equipo. La campaña final debe ejecutarse después de validar Beta 0 y Beta 2 con la misma configuración y de fijar el commit de código.
+Estado: campaña ejecutada el 10 de noviembre de 2026; revisión cruzada del equipo pendiente. El código medido quedó fijado en el commit `ded6d49`.
 
 ## Decisiones congeladas
 
@@ -32,6 +32,8 @@ Las salidas nuevas no se sobrescriben sin `--overwrite`. El CSV crudo se escribe
 ## Anomalías y descarte
 
 Registrar cualquier fallo, diferencia funcional, interrupción, saturación u observación atípica en una bitácora con fecha, configuración, repetición y motivo. Repetir la configuración afectada con el mismo entorno. Excluir una medición solo por un fallo identificable del procedimiento o de la máquina, nunca por empeorar el speedup. Conservar la medición original y explicar el criterio en el informe.
+
+La auditoría de la campaña final no encontró configuraciones con una medición paralela que se desviara más del 20% de la mediana de sus tres repeticiones. No se descartó ni repitió ningún punto. Ver `docs/bitacora_noemi.md`.
 
 ## Alcance de la accuracy
 

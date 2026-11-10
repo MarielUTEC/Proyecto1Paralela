@@ -1,6 +1,8 @@
 import argparse
 import csv
 from pathlib import Path
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 # Rutas por defecto
@@ -90,6 +92,27 @@ def plot_results(summary_path=SUMMARY_DEFAULT, output_dir=FIGURES_DEFAULT):
     plt.tight_layout()
     plt.savefig(output_dir / "eficiencia.png")
     plt.close()
+
+    # 4. Overhead estimado, disponible en la campana final Beta 2
+    if "overhead_median_seconds" in rows[0]:
+        plt.figure(figsize=(8, 5))
+        for n in n_values:
+            group = sorted([r for r in rows if int(r["n_samples"]) == n],
+                           key=lambda x: int(x["p"]))
+            p = [int(r["p"]) for r in group]
+            overhead = [float(r["overhead_median_seconds"]) for r in group]
+            plt.plot(p, overhead, marker="o", label=f"n={n}")
+
+        plt.xscale("log", base=2)
+        plt.xticks(p_values, [str(p) for p in p_values])
+        plt.xlabel("Numero de procesos (p)")
+        plt.ylabel("Overhead estimado (s)")
+        plt.title("Overhead estimado: p T_par - T_seq")
+        plt.grid(True, linestyle="--", alpha=0.5)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(output_dir / "overhead.png")
+        plt.close()
 
     print(f"Gráficas generadas exitosamente en: {output_dir}")
 

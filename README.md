@@ -38,7 +38,10 @@ Las versiones anteriores se conservan como referencia: Beta 0 (baseline secuenci
 - Pruebas de correctitud secuencial vs. paralelo: [tests/test_correctitud.py](tests/test_correctitud.py).
 - Benchmark comparativo final: [benchmarks/run_experiments.py](benchmarks/run_experiments.py) (Beta 0 vs. Beta 2 con `m` fijo).
 - Protocolo de la campaña Windows: [docs/protocolo_experimental.md](docs/protocolo_experimental.md); impacto de las fuentes: [docs/fuentes_impacto_noemi.md](docs/fuentes_impacto_noemi.md).
+- Auditoría de campaña: [benchmarks/validate_campaign.py](benchmarks/validate_campaign.py); bitácora: [docs/bitacora_noemi.md](docs/bitacora_noemi.md).
+- Revisión cruzada: [docs/revision_cruzada_noemi.md](docs/revision_cruzada_noemi.md); preparación oral: [docs/preparacion_oral_noemi.md](docs/preparacion_oral_noemi.md).
 - Generación de gráficas desde el resumen CSV: [plots/plot_results.py](plots/plot_results.py).
+- Campaña final Beta 2 (`m=32` fijo) completa para `n_samples=5000,10000,20000` y `p=1,2,4,8`, con tres repeticiones.
 - Campaña preliminar (`m=p`, Beta 0 vs. Beta 1) completa para `n_samples=5000` y `10000`.
 
 ## Estructura
@@ -107,17 +110,8 @@ Ambos programas generan los datos con `make_classification` (20 features, 15 inf
 Comparan Beta 0 y Beta 2 con `m=32` y `p ∈ {1,2,4,8}`: misma semilla ganadora, misma accuracy y mismo `n_iter_` por semilla. También cubren la reducción con desempate por menor semilla, `p > m` y el modo `spawn`. La comparación explícita con `fork` se omite en Windows, donde ese método no existe.
 
 ## Experimentos comparativos
-> **Nota:** los resultados cuantitativos incluidos más abajo pertenecen a la campaña **preliminar** (`m=p`, Beta 0 vs. Beta 1). La campaña final con `m=32` fijo y Beta 2 usa un entorno y archivos separados.
 
-[run_experiments.py](benchmarks/run_experiments.py) compara Beta 0 y Beta 1 con el mismo dataset, el mismo conjunto de `m=p` semillas y los mismos hiperparámetros. Los valores predeterminados son:
-
-```text
-p            = {1, 2, 4, 8, 16, 32}
-n_samples    = {5000, 10000, 20000, 40000}
-repeticiones = 3
-```
-
-Para cada `n`, el dataset se genera fuera de la región cronometrada. La medición incluye la partición train/test y los entrenamientos; en Beta 1 incluye también el ciclo de vida del pool y la selección del ganador. En cada repetición se ejecuta primero la versión secuencial y luego la paralela. `threadpoolctl` limita a un hilo las bibliotecas numéricas durante la medición.
+El runner actual compara Beta 0 con Beta 2 para un workload fijo de `m` semillas. Genera el dataset fuera de la región cronometrada, empareja cada ejecución paralela con el baseline del mismo `n` y repetición, y alterna si mide primero secuencial o paralelo. La campaña histórica Beta 1 (`m=p`) está archivada por separado y no se usa para las conclusiones de strong scaling.
 
 ### Campaña final (strong scaling, `m=32` fijo)
 
@@ -126,6 +120,12 @@ Para cada `n`, el dataset se genera fuera de la región cronometrada. La medici�
 ```
 
 Compara Beta 0 y Beta 2 con las mismas 32 semillas para todos los `p`. Escribe los CSV indicados y un archivo `.metadata.json` junto al CSV crudo. Detiene la campaña si difieren ganador, accuracy o `n_iter_` por semilla; registra `n_iter_by_seed_json`, fases de tiempo y metadatos de hardware y software. La campaña principal de esta PC limita `p` a 8 porque dispone de 12 CPU lógicas.
+
+Para auditar las salidas de la campaña final:
+
+```bash
+.venv/bin/python benchmarks/validate_campaign.py results/raw/campana_final_windows_m32.csv results/processed/resumen_campana_final_windows_m32.csv results/raw/campana_final_windows_m32.metadata.json
+```
 
 También se puede ejecutar con valores predeterminados. En esta PC selecciona `p=1,2,4,8` porque solo incluye potencias de dos que no exceden las CPU lógicas disponibles:
 
@@ -169,7 +169,21 @@ El resumen reporta la mediana de los speedups calculados por repetición emparej
 
 ## Resultados disponibles
 
-> Resultados de la campaña preliminar (`m=p`), obtenidos en un equipo local de 8 CPU lógicas. No constituyen strong scaling.
+### Campaña final Beta 2 en Windows
+
+Las [mediciones crudas](results/raw/campana_final_windows_m32.csv), el [resumen](results/processed/resumen_campana_final_windows_m32.csv) y los [metadatos](results/raw/campana_final_windows_m32.metadata.json) corresponden al commit `ded6d49`. La auditoría confirmó 12 configuraciones con tres repeticiones y equivalencia funcional completa. Speedup mediano por tamaño y número de procesos:
+
+| `n_samples` | p=1 | p=2 | p=4 | p=8 |
+|---:|---:|---:|---:|---:|
+| 5000 | 0.94 | 1.75 | 2.49 | 2.99 |
+| 10000 | 0.97 | 1.52 | 2.42 | 3.47 |
+| 20000 | 0.95 | 1.79 | 2.86 | **3.65** |
+
+El máximo mediano fue 3.65 para `n=20000`, `p=8`, con eficiencia 45.6%. El informe actualizado en [report/main.tex](report/main.tex) incluye tabla, figuras y límites de interpretación.
+
+### Campaña preliminar Beta 1 (`m=p`)
+
+Estos resultados históricos se obtuvieron en un equipo local de 8 CPU lógicas. No constituyen strong scaling.
 
 La campaña completa disponible cubre `n_samples=5000` y `10000`, todos los valores de `p` y tres repeticiones por configuración:
 
@@ -178,7 +192,7 @@ La campaña completa disponible cubre `n_samples=5000` y `10000`, todos los valo
 - Metadatos de la campaña: [experimentos_5000y10000.metadata.json](results/raw/experimentos_5000y10000.metadata.json).
 - Datos parciales de un intento anterior, archivados y excluidos del resumen: [experimentos_interrumpidos.csv](results/raw/experimentos_interrumpidos.csv).
 
-Los speedups medianos de la campaña vigente son:
+Los speedups medianos de esa campaña histórica son:
 
 | `n_samples` | p=1 | p=2 | p=4 | p=8 | p=16 | p=32 |
 |---:|---:|---:|---:|---:|---:|---:|
@@ -191,15 +205,15 @@ La accuracy usada para elegir la semilla ganadora se mide sobre el conjunto llam
 
 ## Generar las gráficas
 
-`run_experiments.py` genera CSV y metadatos, pero **no genera imágenes**. Para producir las figuras desde un resumen se pone el siguiente comando:
+`run_experiments.py` genera CSV y metadatos; las imágenes se generan por separado desde el resumen final:
 
 ```bash
 .venv/bin/python plots/plot_results.py \
-  --summary results/processed/resumen_experimentos.csv \
-  --output_dir report/figures_actualizadas
+  --summary results/processed/resumen_campana_final_windows_m32.csv \
+  --output_dir report/figures_final_windows
 ```
 
-Se generan `tiempo.png`, `speedup.png` y `eficiencia.png` dentro de la carpeta de salida. Las figuras de la última campaña están en [report/figures_actualizadas](report/figures_actualizadas).
+Se generan `tiempo.png`, `speedup.png`, `eficiencia.png` y `overhead.png`. Las figuras de la campaña final están en [report/figures_final_windows](report/figures_final_windows).
 
 Para usar las rutas predeterminadas, que esperan `results/processed/resumen.csv` y escriben en `report/figures/`:
 
