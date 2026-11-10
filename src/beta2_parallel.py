@@ -19,6 +19,7 @@ from multiprocessing import get_context, shared_memory
 
 import joblib
 import numpy as np
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.neural_network import MLPClassifier
 from threadpoolctl import threadpool_limits
 
@@ -75,6 +76,7 @@ def modelo_desde_params(flat, X_ref, y_ref, params, seed):
 # -------------------------------------------------------------------- worker
 def _init_worker(specs, params):
     """Se ejecuta una vez por worker: se conecta a los segmentos."""
+    warnings.filterwarnings("ignore", category=ConvergenceWarning)
     threadpool_limits(limits=1)
     _G.clear()
     _G["_shms"] = []

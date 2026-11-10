@@ -36,7 +36,8 @@ Las versiones anteriores se conservan como referencia: Beta 0 (baseline secuenci
 - **Versión paralela final (memoria compartida, `m` y `p` independientes):** [src/beta2_parallel.py](src/beta2_parallel.py).
 - Versión paralela anterior, solo evidencia histórica (`m=p`): [src/beta1_parallel.py](src/beta1_parallel.py).
 - Pruebas de correctitud secuencial vs. paralelo: [tests/test_correctitud.py](tests/test_correctitud.py).
-- Benchmark comparativo: [benchmarks/run_experiments.py](benchmarks/run_experiments.py) (aún por actualizar a Beta 2 con `m` fijo).
+- Benchmark comparativo final: [benchmarks/run_experiments.py](benchmarks/run_experiments.py) (Beta 0 vs. Beta 2 con `m` fijo).
+- Protocolo de la campaña Windows: [docs/protocolo_experimental.md](docs/protocolo_experimental.md); impacto de las fuentes: [docs/fuentes_impacto_noemi.md](docs/fuentes_impacto_noemi.md).
 - Generación de gráficas desde el resumen CSV: [plots/plot_results.py](plots/plot_results.py).
 - Campaña preliminar (`m=p`, Beta 0 vs. Beta 1) completa para `n_samples=5000` y `10000`.
 
@@ -78,6 +79,7 @@ python3 -m venv .venv
 ```
 
 En Windows, usa `.venv\Scripts\python.exe` en lugar de `.venv/bin/python`.
+Para repetir exactamente el entorno de la campaña Windows, instala `requirements-lock.txt` en un entorno virtual Python 3.12.
 
 ## Ejecutar las versiones
 
@@ -102,10 +104,10 @@ Ambos programas generan los datos con `make_classification` (20 features, 15 inf
 .venv/bin/python -m pytest tests -v
 ```
 
-Comparan Beta 0 y Beta 2 con `m=32` y `p ∈ {1,2,4,8}`: misma semilla ganadora, misma accuracy y mismo `n_iter_` por semilla. También cubren la reducción con desempate por menor semilla, `p > m` y el modo `spawn`.
+Comparan Beta 0 y Beta 2 con `m=32` y `p ∈ {1,2,4,8}`: misma semilla ganadora, misma accuracy y mismo `n_iter_` por semilla. También cubren la reducción con desempate por menor semilla, `p > m` y el modo `spawn`. La comparación explícita con `fork` se omite en Windows, donde ese método no existe.
 
 ## Experimentos comparativos
-> **Nota:** esta sección describe la campaña **preliminar** (`m=p`, Beta 0 vs. Beta 1). La campaña final con `m=32` fijo y Beta 2 se documenta cuando se ejecute.
+> **Nota:** los resultados cuantitativos incluidos más abajo pertenecen a la campaña **preliminar** (`m=p`, Beta 0 vs. Beta 1). La campaña final con `m=32` fijo y Beta 2 usa un entorno y archivos separados.
 
 [run_experiments.py](benchmarks/run_experiments.py) compara Beta 0 y Beta 1 con el mismo dataset, el mismo conjunto de `m=p` semillas y los mismos hiperparámetros. Los valores predeterminados son:
 
@@ -120,12 +122,12 @@ Para cada `n`, el dataset se genera fuera de la región cronometrada. La medici�
 ### Campaña final (strong scaling, `m=32` fijo)
 
 ```bash
-.venv/bin/python benchmarks/run_experiments.py --m 32 --p 1 2 4 8 16 32 --n_samples 5000 10000 20000 --repeticiones 3
+.venv/bin/python benchmarks/run_experiments.py --m 32 --p 1 2 4 8 --n_samples 5000 10000 20000 --repeticiones 3 --raw_out results/raw/campana_final_windows_m32.csv --summary_out results/processed/resumen_campana_final_windows_m32.csv
 ```
 
-Compara Beta 0 y Beta 2 con las mismas 32 semillas para todos los `p`. Escribe `results/raw/campana_final_m32.csv`, `results/processed/resumen_campana_final_m32.csv` y su archivo de metadatos. Verifica en cada repetición que el paralelo coincida con el secuencial y registra las fases de overhead y el `n_iter_` por semilla.
+Compara Beta 0 y Beta 2 con las mismas 32 semillas para todos los `p`. Escribe los CSV indicados y un archivo `.metadata.json` junto al CSV crudo. Detiene la campaña si difieren ganador, accuracy o `n_iter_` por semilla; registra `n_iter_by_seed_json`, fases de tiempo y metadatos de hardware y software. La campaña principal de esta PC limita `p` a 8 porque dispone de 12 CPU lógicas.
 
-Ejecutar la matriz predeterminada:
+También se puede ejecutar con valores predeterminados. En esta PC selecciona `p=1,2,4,8` porque solo incluye potencias de dos que no exceden las CPU lógicas disponibles:
 
 ```bash
 .venv/bin/python benchmarks/run_experiments.py
@@ -133,9 +135,9 @@ Ejecutar la matriz predeterminada:
 
 El programa escribe:
 
-- `results/raw/experimentos.csv`: ejecuciones individuales con tiempos, accuracy y semilla ganadora.
-- `results/processed/resumen.csv`: medianas, medias, desviaciones estándar muestrales, speedup emparejado y eficiencia.
-- `results/raw/experimentos.metadata.json`: timestamp, plataforma, cantidad de CPU lógicas, versiones de Python/NumPy/scikit-learn y parámetros de la campaña.
+- `results/raw/campana_final_m32.csv`: ejecuciones individuales con tiempos, accuracy, semilla ganadora y `n_iter_` por semilla.
+- `results/processed/resumen_campana_final_m32.csv`: medianas, medias, desviaciones estándar muestrales, speedup emparejado y eficiencia.
+- `results/raw/campana_final_m32.metadata.json`: timestamp, plataforma, cantidad de CPU lógicas, versiones de Python/NumPy/scikit-learn y parámetros de la campaña.
 
 Si los archivos de salida ya existen, el programa se detiene para evitar sobrescribirlos. Usa `--overwrite` solo si se desea reemplazar esa campaña.
 

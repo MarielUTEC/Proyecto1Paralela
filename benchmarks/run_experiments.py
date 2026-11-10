@@ -47,8 +47,9 @@ RAW_FIELDS = [
     "timestamp_utc", "n_samples", "m", "p", "repetition", "mode", "order",
     "elapsed_seconds", "accuracy", "best_seed",
     "n_iter_min", "n_iter_max", "n_iter_mean", "n_hit_max_iter",
+    "n_iter_by_seed_json",
     "t_seed_sum", "t_seed_max", *FASES,
-    "oversubscribed", "same_winner", "same_acc_all",
+    "oversubscribed", "same_winner", "same_acc_all", "same_n_iter_all",
 ]
 
 SUMMARY_FIELDS = [
@@ -74,6 +75,16 @@ def _cpus_disponibles():
 
 
 def _cpu_model():
+    if sys.platform == "win32":
+        try:
+            import winreg
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+            ) as key:
+                return winreg.QueryValueEx(key, "ProcessorNameString")[0].strip()
+        except OSError:
+            pass
     try:
         with open("/proc/cpuinfo", encoding="utf-8") as f:
             for linea in f:
@@ -85,6 +96,24 @@ def _cpu_model():
 
 
 def _mem_total_gib():
+    if sys.platform == "win32":
+        import ctypes
+
+        class MemoryStatus(ctypes.Structure):
+            _fields_ = [("length", ctypes.c_ulong),
+                        ("memory_load", ctypes.c_ulong),
+                        ("total_physical", ctypes.c_ulonglong),
+                        ("available_physical", ctypes.c_ulonglong),
+                        ("total_page_file", ctypes.c_ulonglong),
+                        ("available_page_file", ctypes.c_ulonglong),
+                        ("total_virtual", ctypes.c_ulonglong),
+                        ("available_virtual", ctypes.c_ulonglong),
+                        ("available_extended_virtual", ctypes.c_ulonglong)]
+
+        status = MemoryStatus()
+        status.length = ctypes.sizeof(status)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return round(status.total_physical / 1024 ** 3, 2)
     try:
         with open("/proc/meminfo", encoding="utf-8") as f:
             for linea in f:
@@ -223,7 +252,9 @@ def _write_summary(raw_path, summary_path):
         g["sp"].append(ts / tp)
         g["ov"].append(p * tp - ts)
         g["acc"].append(_fl(rp["accuracy"]))
-        g["eq"].append(rp["same_winner"] == "1" and rp["same_acc_all"] == "1")
+        g["eq"].append(rp["same_winner"] == "1" and
+                       rp["same_acc_all"] == "1" and
+                       rp["same_n_iter_all"] == "1")
         for f in FASES:
             if rp[f] != "":
                 g["fases"][f].append(_fl(rp[f]))
@@ -323,6 +354,7 @@ def run_experiments(m, p_values, n_values, repetitions, raw_path,
                 f = _fila_base(n, m, 1, rep, "sequential", orden)
                 f.update(elapsed_seconds=f"{rs['el']:.9f}",
                          accuracy=f"{rs['acc']:.9f}", best_seed=rs["seed"],
+                          n_iter_by_seed_json=json.dumps(rs["n_iter"]),
                          t_seed_sum=f"{sum(rs['t_seed']):.6f}",
                          t_seed_max=f"{max(rs['t_seed']):.6f}",
                          **_stats_iter(rs["n_iter"], max_iter))
@@ -331,18 +363,23 @@ def run_experiments(m, p_values, n_values, repetitions, raw_path,
                     mismo_ganador = (rp["seed"] == rs["seed"]
                                      and rp["acc"] == rs["acc"])
                     mismas_acc = rp["acc_all"] == rs["acc_all"]
-                    if not (mismo_ganador and mismas_acc):
-                        print(f"  !! n={n} p={p} rep={rep}: el paralelo NO "
-                              f"coincide con el secuencial")
+                    mismas_iter = rp["n_iter"] == rs["n_iter"]
+                    if not (mismo_ganador and mismas_acc and mismas_iter):
+                        raise RuntimeError(
+                            f"n={n} p={p} rep={rep}: Beta 2 no coincide "
+                            "con Beta 0 en ganador, accuracy o n_iter por semilla")
                     f = _fila_base(n, m, p, rep, "parallel", orden)
                     f.update(
                         elapsed_seconds=f"{rp['el']:.9f}",
                         accuracy=f"{rp['acc']:.9f}", best_seed=rp["seed"],
+                        n_iter_by_seed_json=json.dumps(
+                            [int(v) for v in rp["n_iter"]]),
                         t_seed_sum=f"{sum(rp['t_seed']):.6f}",
                         t_seed_max=f"{max(rp['t_seed']):.6f}",
                         oversubscribed=int(p > cpus),
                         same_winner=int(mismo_ganador),
                         same_acc_all=int(mismas_acc),
+                        same_n_iter_all=int(mismas_iter),
                         **_stats_iter(rp["n_iter"], max_iter))
                     fases = rp["fases"]
                     for k in FASES:
@@ -369,7 +406,8 @@ def main():
         description="Strong scaling: m fijo, p variable (Beta 0 vs Beta 2).")
     ap.add_argument("--m", type=int, default=M_DEFAULT,
                     help="numero de semillas (fijo en toda la campana)")
-    ap.add_argument("--p", type=int, nargs="+", default=P_VALUES_DEFAULT)
+    ap.add_argument("--p", type=int, nargs="+", default=None,
+                    help="procesos; por defecto potencias de 2 hasta las CPU disponibles")
     ap.add_argument("--n_samples", type=int, nargs="+",
                     default=N_SAMPLES_DEFAULT)
     ap.add_argument("--repeticiones", type=int, default=3)
@@ -380,7 +418,9 @@ def main():
     ap.add_argument("--overwrite", action="store_true")
     ap.add_argument("--sin_warmup", action="store_true")
     a = ap.parse_args()
-    run_experiments(a.m, a.p, a.n_samples, a.repeticiones, a.raw_out,
+    p_values = (a.p if a.p is not None else
+                [p for p in P_VALUES_DEFAULT if p <= _cpus_disponibles()])
+    run_experiments(a.m, p_values, a.n_samples, a.repeticiones, a.raw_out,
                     a.summary_out, overwrite=a.overwrite,
                     warmup=not a.sin_warmup)
 

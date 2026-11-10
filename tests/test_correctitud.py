@@ -30,7 +30,8 @@ def referencia(datos):
     X, y = datos
     _, acc, seed, tiempos = b0.entrenamiento_secuencial(X, y, M)
     return dict(acc=acc, seed=seed,
-                acc_por_semilla=[t["accuracy"] for t in tiempos])
+                acc_por_semilla=[t["accuracy"] for t in tiempos],
+                n_iter_por_semilla=[t["n_iter"] for t in tiempos])
 
 
 @pytest.fixture(scope="module")
@@ -63,6 +64,7 @@ def test_paralelo_igual_a_secuencial(datos, referencia, n_iter_p1, p):
     assert r["mejor_accuracy"] == referencia["acc"]
     assert list(r["acc"]) == referencia["acc_por_semilla"]
     assert list(r["n_iter"]) == list(n_iter_p1)
+    assert list(r["n_iter"]) == referencia["n_iter_por_semilla"]
 
 
 def test_modelo_ganador_reconstruido(datos):
@@ -81,6 +83,7 @@ def test_p_mayor_que_m(datos):
 
 
 # --- Modo spawn (Windows / macOS) -------------------------------------------
+@pytest.mark.skipif(sys.platform == "win32", reason="fork no existe en Windows")
 def test_spawn_igual_a_fork(datos):
     X, y = datos
     a = b2.entrenamiento_paralelo(X, y, 4, 2, metodo_inicio="fork")

@@ -20,6 +20,7 @@ from sklearn.neural_network import MLPClassifier  # noqa: E402
 # Hiperparametros congelados de la campana (no mezclar campanas si cambian)
 PARAMS_DEFECTO = dict(
     hidden_layer_sizes=(10, 10),
+    solver="adam",
     alpha=1e-4,
     learning_rate_init=1e-3,
     max_iter=200,
