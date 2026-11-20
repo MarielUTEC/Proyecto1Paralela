@@ -1,219 +1,165 @@
 # Derivación PRAM - paralelismo entre semillas
 
-## 1. Notación
+## 1. Notación y alcance
 
-Sea:
+- `m = |S|`: número de semillas/modelos del workload.
+- `p`: número de procesadores en el modelo PRAM o de procesos worker en Beta 2.
+- `C = Θ(E*n*d*h)`: costo de entrenar y evaluar una semilla, según el modelo del
+  enunciado.
 
-- `m = |S|`: número de semillas/modelos independientes.
-- `p`: número de procesadores/workers.
-- `C = Θ(E*n*d*h)`: costo de entrenar y evaluar un modelo según el baseline del enunciado.
+La unidad paralela principal es el entrenamiento completo de una semilla. No se
+paraleliza internamente el forward/backpropagation del MLP. Se supone inicialmente
+que los costos de entrenamiento son comparables; en scikit-learn el número
+efectivo de iteraciones puede variar por semilla.
 
-El análisis considera como unidad paralela principal el entrenamiento completo de un modelo. En esta beta no se paraleliza internamente el forward/backpropagation de un MLP.
+El análisis separa el costo ideal del algoritmo del tiempo de la implementación
+Python. En Beta 2, `m` y `p` son independientes; la campaña vigente mantiene `m`
+fijo y varía `p`.
 
----
+## 2. Tiempo secuencial del workload
 
-## 2. Tiempo secuencial para el workload completo
-
-Entrenar `m` modelos uno tras otro cuesta:
+Entrenar las `m` semillas una tras otra tiene costo:
 
 ```text
 T_seq(m,n,d,h,E) = Θ(m*C)
-                   = Θ(m*E*n*d*h)
+                  = Θ(m*E*n*d*h)
 ```
 
-La comparación final de `m` accuracies añade `Θ(m)`, dominado por el entrenamiento cuando `C` es grande.
-
----
+La selección del máximo accuracy añade `Θ(m)`, dominado asintóticamente por el
+entrenamiento cuando `C` es grande. Este es el workload de referencia usado por
+Beta 0 para comparar las mismas `m` semillas de Beta 2.
 
 ## 3. Trabajo W
 
-El trabajo total del DAG paralelo contiene:
-
-- `m` entrenamientos, cada uno de costo `C`;
-- una reducción de máximo con `m-1` comparaciones.
-
-Por tanto:
+El DAG de tareas tiene `m` entrenamientos independientes de costo `C` y una
+reducción de máximo con `m-1` comparaciones:
 
 ```text
 W = Θ(m*C + m)
   = Θ(m*E*n*d*h)
 ```
 
-Esto coincide asintóticamente con el trabajo del algoritmo secuencial para el mismo conjunto de `m` semillas, por lo que el diseño es work-optimal respecto de este baseline.
+El trabajo es asintóticamente igual al del baseline secuencial para las mismas
+semillas; por ello el diseño es work-optimal respecto de este baseline.
 
----
+## 4. Profundidad D (span) PRAM
 
-## 4. Profundidad D (span)
-
-Con suficientes procesadores, los `m` entrenamientos independientes pueden ejecutarse al mismo tiempo. Cada entrenamiento sigue siendo una cadena de costo `C` en el nivel de abstracción de esta beta.
-
-La reducción en árbol requiere `Θ(log m)` niveles.
-
-Entonces:
+Con suficientes procesadores, los `m` entrenamientos se ejecutan en paralelo. Cada
+uno mantiene su costo secuencial `C`. Una reducción binaria paralela requiere
+`Θ(log m)` niveles:
 
 ```text
 D = Θ(C + log m)
   = Θ(E*n*d*h + log m)
 ```
 
----
+Esta profundidad describe la reducción paralela en el modelo PRAM. La función
+`reduce_max_arbol` de Beta 2 realiza las comparaciones de esas rondas en bucles
+secuenciales del proceso maestro; por tanto, el código implementado no alcanza
+span `Θ(log m)` en esa fase.
 
 ## 5. Paralelismo disponible
 
 ```text
 Π = W / D
-  = Θ( m*C / (C + log m) )
+  = Θ(m*C / (C + log m))
 ```
 
-Cuando `C >> log m`:
+Cuando `C >> log m`, `Π ≈ Θ(m)`: el paralelismo útil de esta estrategia externa
+está limitado esencialmente por las semillas independientes. Más workers que
+semillas no reducen el costo secuencial interno de entrenar un MLP.
+
+## 6. Tiempo ideal con p procesadores
+
+Para tareas de costo aproximadamente uniforme, una planificación balanceada de
+las `m` semillas da el modelo:
 
 ```text
-Π ≈ Θ(m)
+T_p,ideal = Θ(ceil(m/p)*C + log m)
 ```
 
-Interpretación: el máximo paralelismo útil de esta estrategia externa está acotado esencialmente por la cantidad de modelos/semillas independientes. Agregar muchos más procesadores que semillas no reduce el costo secuencial interno de entrenar un modelo.
+La expresión incorpora el costo de entrenamientos asignados al worker más cargado
+y la profundidad de una reducción paralela ideal. Es una aproximación teórica: no
+incluye granularidad de planificación, creación de workers, comunicación ni
+variación del número de iteraciones entre modelos.
 
----
-
-## 6. Tiempo con p procesadores
-
-Asignando las semillas entre `p` workers, cada worker ejecuta como máximo `ceil(m/p)` entrenamientos.
-
-Un modelo de tiempo más informativo que la cota genérica de Brent es:
-
-```text
-T_p = Θ( ceil(m/p)*C + log m )
-```
-
-para la versión teórica con reducción en árbol.
-
-La Ley de Brent también da:
+La ley de Brent da la cota general:
 
 ```text
 T_p = O(W/p + D)
     = O(m*C/p + C + log m)
 ```
 
-La primera expresión representa mejor la planificación de `m` tareas independientes; la segunda es una cota general.
+En Beta 2, la reducción de máximo se ejecuta en serie. Aun omitiendo los demás
+overheads, el término de reducción real es `Θ(m)` en lugar de `Θ(log m)`.
 
-Esta expresión supone una reducción en árbol. Beta 1 implementa `max(resultados, ...)`
-en el proceso maestro, de costo `Theta(m)`, y además tiene overhead de creación de
-procesos y transferencia de datos. Para interpretar la implementación real debe
-considerarse:
+## 7. Tiempo de Beta 2 implementada
 
-```text
-T_Beta1(m,p) = T_setup(p,n) + ceil(m/p)*C + Theta(m) + T_comunicacion(p,n)
-```
+Beta 2 (`src/beta2_parallel.py`) divide los datos, copia los arreglos a segmentos
+de `multiprocessing.shared_memory`, inicia un `Pool` de `p` procesos y distribuye
+las `m` semillas con `chunksize=1`. Los workers leen los datos compartidos y cada
+semilla escribe sus resultados en slots exclusivos. El maestro copia las
+accuracies y ejecuta la reducción por rondas secuencialmente.
 
-`T_setup` incluye la partición train/test y el ciclo de vida del pool; la transferencia
-depende del método de inicio de procesos y del sistema operativo. Son costos
-experimentales, no términos del PRAM abstracto.
-
----
-
-## 7. Caso particular del enunciado: m = p
-
-Si el número de semillas se fija igual al número de workers:
+Un resumen útil del tiempo medido es:
 
 ```text
-m = p
+T_Beta2 = T_split + T_shm_setup + T_pool_start
+        + T_map + T_join + T_reduccion + T_shm_cleanup
 ```
 
-entonces cada worker entrena un único modelo:
+De forma aproximada, la parte de entrenamiento puede comportarse como
+`ceil(m/p)*C` si los trabajos son similares, mientras que la reducción
+implementada cuesta `Θ(m)`. Los términos de split, memoria compartida, pool,
+planificación y cleanup dependen del sistema y del runtime; no se derivan de la
+cota PRAM. El programa reporta estas fases por separado, además del tiempo total.
+
+La memoria compartida reduce la necesidad de serializar/copiar los arreglos de
+datos para cada tarea, pero no elimina el costo de crear los segmentos, iniciar
+procesos ni gestionar el pool. Tampoco convierte a `multiprocessing` en una PRAM
+literal.
+
+## 8. Caso especial m = p
+
+Si el workload se define con `m=p`, hay una semilla por worker en el caso ideal:
 
 ```text
-T_parallel(p) = Θ(C + log p)
+T_parallel,ideal(p) = Θ(C + log p)
+T_seq(p)            = Θ(p*C)
+S_ideal(p)          = T_seq(p) / T_parallel,ideal(p)
+                    ≈ p*C / (C + log p)
+Ef_ideal(p)         = S_ideal(p) / p
+                    ≈ C / (C + log p)
 ```
 
-El mismo workload ejecutado secuencialmente cuesta:
+Cuando `C >> log p`, el modelo ideal da `S_ideal(p) ≈ p` y `Ef_ideal(p) ≈ 1`.
+Beta 2 no implementa una reducción paralela, así que, incluso sin setup ni
+comunicación, su reducción serial añade `Θ(p)` en este caso. Las fórmulas ideales
+no son predicciones directas de sus tiempos observados.
+
+Este caso `m=p` describe la configuración histórica de Beta 1, no la campaña
+actual de Beta 2. En la campaña actual, `m=32` es fijo y se comparan los tiempos
+Beta 0/Beta 2 para `p` variable:
 
 ```text
-T_seq(p) = Θ(p*C)
+S(n,m,p)  = T_seq(n,m) / T_par(n,m,p)
+Ef(n,m,p) = S(n,m,p) / p
 ```
 
-Por tanto, el speedup teórico es:
+Así se compara el mismo workload en cada punto de strong scaling. No se debe usar
+un tiempo secuencial con un número distinto de semillas como baseline.
 
-```text
-S(p) = T_seq(p) / T_parallel(p)
-     ≈ p*C / (C + log p)
-```
+## 9. Relación entre C y scikit-learn
 
-Y la eficiencia:
+`C=Θ(E*n*d*h)` es el modelo de costo establecido por el enunciado. Para una MLP
+densa de arquitectura fija, el costo de una época es aproximadamente
+`Θ(n * sum_l(w_(l-1)*w_l))`, lineal en `n` al mantener fijas las capas. En
+`MLPClassifier`, `max_iter=200` es un límite y el entrenamiento puede detenerse
+antes por convergencia; además, el número efectivo de iteraciones puede variar
+entre semillas.
 
-```text
-Ef(p) = S(p)/p
-      ≈ C / (C + log p)
-```
-
-Si `C >> log p`, entonces:
-
-```text
-S(p) ≈ p
-Ef(p) ≈ 1
-```
-
-Esto representa el comportamiento ideal del modelo PRAM y no incluye overheads de procesos, serialización, memoria, scheduler ni bibliotecas numéricas.
-
-En la Beta 1 concreta se reemplaza el costo logarítmico de reducción por `Theta(p)`.
-La aproximación ideal `S(p) ≈ p*C/(C+log p)` requiere que el entrenamiento domine la
-reducción y omite los overheads; no debe presentarse como predicción directa de los
-tiempos observados.
-
-### Alcance de C para scikit-learn
-
-`C=Theta(E*n*d*h)` es el modelo de costo proporcionado por el enunciado. Para la
-implementación, una época de una MLP densa de arquitectura fija cuesta
-aproximadamente `Theta(n * sum_l(w_(l-1)*w_l))`, por lo que es lineal en `n` al mantener
-fijas las capas. El `max_iter=200` predeterminado de `MLPClassifier` es un máximo y el
-entrenamiento puede detenerse antes por convergencia; por ello el número efectivo de
-épocas puede variar por semilla. En las conclusiones, `C` debe entenderse como una
-abstracción uniforme del análisis, mientras los tiempos corresponden a la configuración
-real y su criterio de parada.
-
----
-
-## 8. Diferencia con la Beta 1 implementada
-
-La Beta 1 usa `multiprocessing.Pool` para los entrenamientos, pero selecciona el mejor modelo con:
-
-```python
-max(resultados, key=lambda r: r[1])
-```
-
-Por ello, su reducción real en el maestro es `Θ(m)`, no `Θ(log m)`.
-
-Además, los datos enviados a procesos pueden ser serializados/copied en lugar de residir en una memoria global CREW literal. En consecuencia, el tiempo medido experimentalmente tendrá un overhead adicional que debe discutirse al comparar teoría y experimento.
-
----
-
-## 9. Condición para medir speedup correctamente
-
-Cuando se usa `m=p`, no debe tomarse `T(p=1)` como tiempo secuencial de todos los demás puntos, porque el workload cambia con `p`.
-
-Para cada `p` se necesita el par:
-
-```text
-T_seq(m=p)  : mismas p semillas, ejecutadas una tras otra
-T_par(m=p,p): mismas p semillas, ejecutadas con p workers
-```
-
-Solo entonces:
-
-```text
-S(p) = T_seq(m=p) / T_par(m=p,p)
-```
-
-El benchmark comparable está en `benchmarks/run_experiments.py`. El generador de datos
-se ejecuta una vez por `n` fuera de la región cronometrada; la división train/test se
-incluye tanto en Beta 0 como en Beta 1. La campaña controla los hilos internos BLAS/OpenMP
-a uno por proceso y registra mediciones por repetición, un resumen estadístico y
-metadatos de hardware/software. Los speedups agregados se derivan de cocientes emparejados
-por repetición; eficiencia es `S/p`, donde `p` son procesos configurados y puede superar
-los procesadores lógicos disponibles.
-
-La accuracy usada para escoger la semilla se calcula sobre el conjunto test en el
-algoritmo vigente. Como el ganador se escoge con esa misma métrica, su accuracy no debe
-interpretarse como estimación independiente de generalización; para ello se necesitaría
-validación para la selección y un test reservado para la evaluación final.
-
-compara la misma cantidad de trabajo.
+En consecuencia, `C` es una abstracción uniforme para el análisis. Los tiempos
+reales corresponden a los hiperparámetros y al criterio de parada de la versión
+de scikit-learn usada en la campaña. La accuracy de selección se calcula sobre el
+conjunto test; no debe interpretarse como evaluación independiente de
+generalización.

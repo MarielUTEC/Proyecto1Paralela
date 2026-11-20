@@ -1,234 +1,161 @@
 # Decisiones del proyecto - PRAM aplicado a múltiples MLP
 
-## 1. Baseline del enunciado
+## 1. Baseline y notación
 
-El análisis parte de la complejidad dada para el entrenamiento de **un** MLP:
+El modelo de costo indicado por el enunciado para entrenar un MLP es:
 
 ```text
 C(n,d,h,E) = Θ(E * n * d * h)
 ```
 
-Variables:
+Donde `n` es el número de muestras, `d` el número de features, `h` el ancho
+considerado por el modelo de costo y `E` las épocas/iteraciones. Para no confundir
+el trabajo con los recursos, se usan:
 
-- `E`: número de épocas/iteraciones de entrenamiento consideradas por el modelo de costo.
-- `n`: número de muestras.
-- `d`: número de features de entrada.
-- `h`: parámetro de ancho/número de neuronas utilizado en la cota del enunciado.
-- `m = |S|`: número de semillas/modelos que se deben evaluar.
-- `p`: número de procesadores/workers disponibles.
+- `m = |S|`: cantidad de semillas/modelos que forman el workload.
+- `p`: cantidad de procesos worker solicitados.
 
-### Decisión de notación importante
+El pseudocódigo puede tomar `m=p`, pero la Beta 2 y la campaña vigente permiten
+variarlos independientemente. La complejidad `C` es una abstracción del enunciado,
+no una descripción exacta del entrenamiento interno de scikit-learn.
 
-Aunque el pseudocódigo del enunciado usa `S={0,...,p-1}`, en el análisis formal se separan `m` y `p` para no confundir **tamaño del workload** con **cantidad de recursos**. El caso del enunciado se recupera haciendo `m=p`.
+## 2. Estrategia paralela
 
----
+Se paraleliza el ciclo sobre las semillas `S={0,...,m-1}`. Para cada semilla `s`,
+Beta 2:
 
-## 2. Estrategia principal de paralelización
+1. entrena un MLP independiente con el mismo conjunto de entrenamiento;
+2. calcula la accuracy sobre el conjunto test;
+3. escribe la accuracy, `n_iter_`, el tiempo y los parámetros del modelo en la
+   posición correspondiente a `s`.
 
-Se paraleliza el ciclo sobre las semillas/modelos.
+Los entrenamientos no dependen entre sí. Al finalizar se selecciona la semilla con
+mayor accuracy; en caso de empate gana la semilla menor, igual que en el baseline
+secuencial.
 
-Cada semilla `s`:
+`p` workers distribuyen las `m` tareas (una semilla por tarea, con `chunksize=1`).
+En el caso ideal de costos uniformes, cada worker ejecuta aproximadamente
+`ceil(m/p)` entrenamientos. Si `p>m`, algunos workers quedan ociosos.
 
-1. inicializa un MLP independiente `M_s`;
-2. entrena ese modelo sobre el mismo split de datos;
-3. calcula su accuracy;
-4. escribe `(accuracy_s, modelo_s)` en una posición exclusiva.
+## 3. Modelo PRAM y memoria de Beta 2
 
-No existe dependencia entre los entrenamientos de dos semillas distintas. La única dependencia global aparece al final, cuando debe elegirse el modelo con mayor accuracy.
+El análisis usa CREW-PRAM:
 
-Con `m` semillas y `p` workers, cada worker procesa aproximadamente `ceil(m/p)` modelos. Para el caso `m=p`, cada worker procesa exactamente una semilla.
+- **Concurrent Read (CR):** las semillas leen los mismos `X_train`, `y_train`,
+  `X_test` y `y_test`.
+- **Exclusive Write (EW):** cada semilla `s` escribe en sus propios slots
+  `Acc[s]`, `n_iter[s]`, `t_seed[s]` y en la fila `Mod[s,:]`.
+- **Reducción:** en el algoritmo PRAM abstracto, cada nivel compara pares
+  disjuntos y escribe un único ganador por pareja.
 
----
+Beta 2 aproxima este patrón con procesos del sistema operativo y
+`multiprocessing.shared_memory`: el proceso maestro copia los cuatro arreglos de
+datos una vez a segmentos compartidos; cada worker se conecta a esos segmentos y
+marca los datos como solo lectura. Los arreglos de salida también son compartidos,
+y cada tarea escribe únicamente la posición de su semilla. Los workers limitan a un
+hilo los kernels numéricos mediante `threadpoolctl`.
 
-## 3. Modelo PRAM
+Esto no es una PRAM literal. Creación de procesos, planificación, sincronización,
+acceso a memoria compartida y bibliotecas numéricas introducen costos reales que el
+modelo no representa. No se usa CRCW porque no hay escrituras concurrentes sobre
+una misma posición. CREW describe el patrón de acceso compartido; no implica que la
+implementación de Python tenga los tiempos ideales del modelo.
 
-Se adopta **CREW-PRAM** como modelo teórico.
+## 4. Reducción del ganador
 
-### Concurrent Read (CR)
+El algoritmo de `reduce_max_arbol` organiza las comparaciones por rondas binarias.
+En un CREW-PRAM, la reducción tiene trabajo `Θ(m)` y profundidad `Θ(log m)`.
+Conserva el candidato sin pareja cuando una ronda tiene un número impar de
+candidatos y resuelve empates a favor de la menor semilla.
 
-Los procesadores pueden leer simultáneamente:
+En Beta 2 esa misma estructura de rondas se ejecuta con bucles secuenciales en el
+proceso maestro, después de copiar las accuracies desde la memoria compartida.
+Por ello, la implementación conserva `ceil(log2 m)` rondas, pero el tiempo de la
+reducción ejecutada es `Θ(m)`, no `Θ(log m)`. La profundidad logarítmica corresponde
+al diseño PRAM ideal, no a una reducción paralela implementada en Python.
 
-- `X_train`, `y_train`;
-- `X_test`, `y_test`;
-- hiperparámetros comunes;
-- configuración del experimento.
+## 5. Implementación vigente: Beta 2
 
-### Exclusive Write (EW)
+La implementación final está en `src/beta2_parallel.py`; el entrenamiento por
+semilla, el split, la generación de datos y la reducción se comparten con el
+baseline en `src/common.py`.
 
-Cada semilla mantiene estado mutable independiente:
+En cada ejecución, Beta 2:
 
-- pesos del modelo;
-- estado del optimizador/entrenamiento;
-- accuracy;
-- referencia al modelo final.
+1. divide los datos una sola vez;
+2. crea segmentos compartidos para los datos y para `Acc`, `n_iter`, `t_seed` y
+   `Mod`;
+3. inicia un `multiprocessing.Pool` con `p` procesos y conecta los workers a esos
+   segmentos;
+4. ejecuta las `m` semillas;
+5. reduce las accuracies en el proceso maestro y reconstruye el modelo ganador.
 
-Cada resultado se escribe en un slot propio `Acc[s]`, `Mod[s]`.
+El diccionario de tiempos separa `split`, `shm_setup`, `pool_start`, `map`, `join`,
+`reduccion`, `shm_cleanup` y `total`. Por tanto, los tiempos observados incluyen
+costos del runtime y de memoria compartida que no aparecen en `C`. La matriz de
+parámetros compartida tiene una fila por semilla y puede requerir memoria
+proporcional a `m` por el número de parámetros del MLP.
 
-La reducción final se organiza por parejas disjuntas; en cada nivel del árbol existe un único escritor para cada posición destino.
+Beta 0 (`src/beta0_sequential.py`) es el baseline secuencial para las mismas `m`
+semillas. Beta 1 (`src/beta1_parallel.py`) es una versión histórica: usaba `m=p`,
+pasaba los datos a las tareas y seleccionaba el máximo con `max` secuencial. No es
+la implementación final ni la base de las conclusiones de strong scaling.
 
-### Por qué no CRCW
+## 6. Configuración de datos y entrenamiento
 
-No se necesita que dos procesadores escriban simultáneamente en la misma posición. Por tanto, CRCW añadiría una capacidad que el algoritmo no utiliza.
-
-### Precisión sobre EREW
-
-No se afirma que EREW sea imposible. Podría implementarse replicando datos o planificando las lecturas, pero eso añadiría costo/estructura innecesaria. CREW modela de manera más directa el patrón de lectura compartida del diseño.
-
----
-
-## 4. Reducción final
-
-### Diseño PRAM objetivo
-
-La selección del máximo accuracy se realiza mediante una reducción binaria:
-
-```text
-m resultados -> m/2 -> m/4 -> ... -> 1
-```
-
-Profundidad:
-
-```text
-Θ(log m)
-```
-
-Trabajo adicional:
-
-```text
-Θ(m)
-```
-
-### Estado de Beta 1
-
-La implementación actual de `src/beta1_parallel.py` todavía usa:
-
-```python
-max(resultados, key=lambda r: r[1])
-```
-
-por lo que la reducción de Beta 1 es secuencial en el proceso maestro y cuesta `Θ(m)`. La reducción en árbol pertenece al diseño PRAM y debe implementarse/validarse en una beta posterior si se desea correspondencia más cercana entre teoría y código.
-
----
-
-## 5. Implementación actual
-
-La Beta 1 utiliza:
-
-- Python;
-- `multiprocessing.Pool` para paralelismo CPU real entre semillas;
-- `scikit-learn` (`MLPClassifier`);
-- `make_classification` para controlar exactamente `n_samples`;
-- `train_test_split` con seed fija para mantener el mismo split;
-- `joblib` para guardar el mejor modelo.
-
-### Diferencia entre PRAM y Python multiprocessing
-
-CREW supone memoria global compartida con lecturas concurrentes. En la Beta 1, los arrays se envían como argumentos a los workers. En Windows esto implica serialización/copia mediante `pickle`; por tanto, la implementación actual **no usa memoria compartida literal** para `X` e `y`.
-
-Interpretación correcta:
-
-- CREW describe el algoritmo abstracto;
-- `multiprocessing` implementa el paralelismo por tareas;
-- serialización, creación de procesos y copias son overheads reales que PRAM no modela.
-
-Una beta futura puede usar `multiprocessing.shared_memory` o un initializer de workers para reducir dicho overhead.
-
----
-
-## 6. Parámetros experimentales
-
-Valores exigidos por el proyecto:
+Los valores compartidos por defecto en `src/common.py` son:
 
 ```text
-n_samples = {5000, 10000, 20000, 40000}
-p         = {1, 2, 4, 8, 16, 32}
-```
-
-En el caso particular del enunciado:
-
-```text
-m = p
-S = {0, ..., p-1}
-```
-
-Se deben mantener constantes entre comparaciones:
-
-- arquitectura del MLP;
-- `alpha`;
-- learning rate;
-- `max_iter` / épocas según la implementación;
-- proporción train/test;
-- seed del split;
-- `n_features`;
-- método de generación del dataset;
-- hardware y entorno de software.
-
----
-
-## 7. Regla de comparación para speedup y eficiencia
-
-Si `m=p`, al incrementar `p` también aumenta el número de modelos del workload. Para cada valor de `p` se debe medir:
-
-```text
-T_seq(p) = tiempo de entrenar secuencialmente las mismas p semillas
-T_par(p) = tiempo de entrenar esas p semillas usando p workers
-```
-
-Luego:
-
-```text
-S(p)  = T_seq(p) / T_par(p)
-Ef(p) = S(p) / p
-```
-
-No se debe calcular `S(p)` dividiendo el tiempo de `p=1` entre la ejecución con `p>1`, porque no serían workloads equivalentes.
-
----
-
-## 8. Control de paralelismo interno
-
-`MLPClassifier` depende de NumPy/SciPy y las bibliotecas BLAS pueden crear hilos internos. Si cada proceso usa varios hilos internos, se produce oversubscription y `p` deja de representar correctamente el número de recursos externos.
-
-`benchmarks/run_experiments.py` limita OpenMP/BLAS a un hilo por proceso mediante variables de entorno y `threadpoolctl`; registra los valores y las bibliotecas numéricas detectadas en el archivo JSON de metadatos. `p` siempre denota procesos solicitados, por lo que si excede los procesadores lógicos disponibles habrá contención del sistema operativo.
-
-La campaña mide Beta 0 y Beta 1 para el mismo dataset y las mismas `m=p` semillas. Se excluye la generación del dataset de la región cronometrada, pero se incluyen split, entrenamientos, selección del ganador y ciclo de vida del pool en las dos versiones. El orden secuencial/paralelo se alterna por repetición; los datos sin procesar se conservan en `results/raw/experimentos.csv` y el resumen se genera en `results/processed/resumen.csv`.
-
-La campaña ejecutada se cerró luego de completar todas las combinaciones para `n_samples=5000` y `10000` con tres repeticiones. Sus archivos son `results/raw/experimentos_n5000_10000.csv` y `results/processed/resumen_n5000_10000.csv`; las mediciones parciales de `n=20000` se conservan en `results/raw/experimentos_interrumpidos.csv`. Los tamaños `20000` y `40000` no forman parte de las conclusiones cuantitativas.
-
----
-
-## 9. Dataset
-
-Se mantiene la decisión de usar un dataset sintético con `make_classification`, porque permite fijar exactamente `n_samples` y repetir la misma distribución de datos para todas las configuraciones.
-
-La campaña registrada usa:
-
-- `n_features = 20`;
-- `n_informative = 15`;
-- clasificación binaria;
-- `random_state = 42` para la generación;
-- `test_size = 0.2`;
-- `split_seed = 0`.
-
-Estos parámetros permanecen fijos durante la campaña experimental.
-
----
-
-## 10. Arquitectura e hiperparámetros: estado actual
-
-La Beta 1 actual configura por defecto:
-
-```text
+n_features = 20
+n_informative = 15
+clases = 2
+random_state de generación = 42
+test_size = 0.2
+split_seed = 0
 hidden_layer_sizes = (10, 10)
-alpha              = 1e-4
+solver = adam
+alpha = 1e-4
 learning_rate_init = 1e-3
-max_iter           = 200
+max_iter = 200
 ```
 
-`MLPClassifier` usa su solver por defecto (`adam`) porque el código no especifica otro.
-Si se modifican arquitectura o hiperparámetros, se debe iniciar una campaña separada y no
-mezclar las mediciones.
+El solver `adam` es el predeterminado de `MLPClassifier`; `max_iter` es un máximo,
+no una garantía de que todos los modelos ejecuten exactamente ese número de
+iteraciones. El número efectivo (`n_iter_`) puede variar según la semilla y la
+convergencia. Cambiar arquitectura o hiperparámetros requiere tratarlo como otra
+configuración experimental.
 
-La complejidad `Θ(E*n*d*h)` se conserva en el informe como **modelo de costo indicado por el enunciado**, y no como una derivación exacta de la implementación interna de scikit-learn.
+## 7. Comparación experimental
 
-En particular, `max_iter` es un máximo y scikit-learn puede detenerse antes por convergencia; los modelos pueden tener distintos números efectivos de épocas. La accuracy usada para elegir el ganador se calcula sobre el conjunto llamado test, por lo que no debe presentarse como estimación independiente de generalización. Una evaluación rigurosa para generalización requeriría seleccionar con validación y medir en un test reservado.
+La campaña vigente es de **strong scaling**: mantiene `m=32` semillas y el mismo
+dataset, y varía `p`. El runner `benchmarks/run_experiments.py` compara Beta 0 y
+Beta 2 para cada `n` y repetición emparejada. El speedup y la eficiencia son:
+
+```text
+S(n,m,p)  = T_seq(n,m) / T_par(n,m,p)
+Ef(n,m,p) = S(n,m,p) / p
+```
+
+El baseline secuencial ejecuta las mismas `m` semillas que Beta 2, por lo que el
+workload no cambia al variar `p`. Se excluye la generación del dataset de la región
+cronometrada; el split se incluye en ambas implementaciones. En Beta 2 también se
+miden el setup y la limpieza de memoria compartida, el ciclo de vida del pool, la
+ejecución y la reducción. `p` representa los procesos solicitados; si supera los
+CPU disponibles, puede haber contención.
+
+La campaña final documentada en el `README` usa `m=32`, `p={1,2,4,8}`,
+`n_samples={5000,10000,20000}` y tres repeticiones. La campaña histórica de Beta 1
+con `m=p` es distinta y no debe mezclarse con los resultados de strong scaling.
+
+## 8. Interpretación de resultados
+
+La accuracy que se usa para escoger la semilla se calcula sobre el conjunto llamado
+test. Como ese mismo conjunto interviene en la selección, la accuracy del ganador
+no es una estimación independiente de generalización. Para medir generalización
+sin sesgo de selección se necesitaría seleccionar con validación y reservar otro
+test para la evaluación final.
+
+La comparación de correctitud entre Beta 0 y Beta 2 verifica el mismo ganador,
+accuracy y `n_iter_` por semilla para el workload de prueba. Esto valida que la
+paralelización preserve el cálculo; no elimina el overhead ni implica que los
+tiempos reales sigan las cotas PRAM ideales.

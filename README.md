@@ -25,7 +25,7 @@ La documentación separa:
 
 La implementación final (**Beta 2**) paraleliza directamente sobre las semillas (`for s ∈ S pardo`) con `m` fijo y `p` configurable. El diseño CREW-PRAM y su análisis se explican en [docs/decisiones.md](docs/decisiones.md) y [docs/derivacion_pram.md](docs/derivacion_pram.md).
 
-> **Modelo de memoria implementado:** procesos + `multiprocessing.shared_memory`. El dataset vive en un segmento compartido de solo lectura (lectura concurrente) y cada semilla escribe solo en su posición de los arreglos compartidos `Acc[s]`, `n_iter[s]`, `t_seed[s]` y `Mod[s]` (escritura exclusiva). Los workers siguen siendo procesos del sistema operativo, por lo que es una aproximación de CREW y no una PRAM literal. La selección final se hace por rondas (árbol binario) en el proceso maestro.
+> **Modelo de memoria implementado:** procesos + `multiprocessing.shared_memory`. El dataset vive en segmentos compartidos de solo lectura (lectura concurrente) y cada semilla escribe solo en su posición de los arreglos compartidos `Acc[s]`, `n_iter[s]`, `t_seed[s]` y `Mod[s]` (escritura exclusiva). Los workers siguen siendo procesos del sistema operativo, por lo que es una aproximación de CREW y no una PRAM literal. La selección final se organiza por rondas como un árbol binario, pero sus comparaciones se ejecutan secuencialmente en el proceso maestro: la reducción implementada cuesta `Θ(m)`. `Θ(log m)` es la profundidad de la reducción paralela ideal en el modelo PRAM, no el tiempo de esta implementación.
 
 Las versiones anteriores se conservan como referencia: Beta 0 (baseline secuencial) y Beta 1 (`Pool` con `m=p`, datos enviados a cada tarea, `max` secuencial).
 
@@ -151,18 +151,19 @@ Para ejecutar un subconjunto en rutas propias:
 
 El archivo JSON de metadatos se genera junto al CSV raw con el mismo nombre base y sufijo `.metadata.json`.
 
-### Métricas y significado de `p`
+### Métricas y significado de `m` y `p`
 
-Cada repetición se compara con el mismo workload:
+La campaña vigente mantiene `m=32` semillas y varía `p`. Cada repetición se compara
+con el mismo workload:
 
 ```text
-T_seq(n,p) = tiempo secuencial de las semillas 0,...,p-1
-T_par(n,p) = tiempo paralelo de esas mismas p semillas
-S(n,p)     = T_seq(n,p) / T_par(n,p)
-E_f(n,p)   = S(n,p) / p
+T_seq(n,m)   = tiempo secuencial de las semillas 0,...,m-1
+T_par(n,m,p) = tiempo de Beta 2 para esas mismas m semillas con p procesos
+S(n,m,p)     = T_seq(n,m) / T_par(n,m,p)
+E_f(n,m,p)   = S(n,m,p) / p
 ```
 
-El resumen reporta la mediana de los speedups calculados por repetición emparejada. Como `m=p`, al aumentar `p` también aumenta el número de modelos. Esta campaña **no es strong scaling de un workload fijo**. `p` es el número de procesos solicitado y puede exceder las CPU disponibles.
+El resumen reporta la mediana de los speedups calculados por repetición emparejada. Como `m` permanece fijo, esta campaña sí es strong scaling. `p` es el número de procesos solicitado y puede exceder las CPU disponibles. La campaña histórica de Beta 1 usaba `m=p` y se describe por separado.
 
 ## Resultados disponibles
 
