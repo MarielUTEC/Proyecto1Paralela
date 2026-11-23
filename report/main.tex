@@ -118,7 +118,7 @@ los entrenamientos correspondientes a semillas diferentes no dependen entre sí 
 requieren combinar sus resultados al final.
 
 A partir del feedback recibido en la entrega parcial, la versión final aplica el
-paralelismo directamente sobre el conjunto de semillas $S$ y separa explícitamente
+paralelismo sobre el conjunto de semillas $S$ y separa explícitamente
 $m=|S|$, número de modelos que forman el workload, de $p$, número de procesos disponibles.
 La implementación principal (Beta 2) utiliza procesos con segmentos de memoria compartida:
 los workers leen concurrentemente el mismo dataset y escriben resultados en posiciones
@@ -128,7 +128,7 @@ CREW-PRAM adoptado en el diseño.
 El objetivo es caracterizar el algoritmo mediante trabajo, profundidad, tiempo con
 $p$ procesos, speedup y eficiencia, y contrastar el comportamiento ideal con una
 implementación reproducible en Python. La campaña final se diseña como una prueba de
-\emph{strong scaling}: se fija el workload de semillas y se modifica únicamente
+\emph{strong scaling}: se fija el workload de semillas y se modifica 
 el número de procesos.
 
 El análisis toma como costo base, de acuerdo con el enunciado del proyecto, el
@@ -185,7 +185,7 @@ El pseudocódigo del enunciado puede expresarse como el caso particular
 $S=\{0,1,\ldots,p-1\}$, donde $m=p$. Sin embargo, para analizar escalabilidad se
 mantienen $m$ y $p$ como parámetros distintos: $m$ representa el tamaño del workload
 externo (número de semillas/modelos) y $p$ la cantidad de recursos. La campaña final
-fija $m=32$ y varía $p$; el caso $m=p$ se conserva únicamente como experimento
+fija $m=32$ y varía $p$; el caso $m=p$ se conserva como experimento
 preliminar de la entrega parcial.
 
 \subsection{Algoritmo secuencial}
@@ -627,8 +627,7 @@ La implementación se desarrolla en Python con \texttt{scikit-learn} y
 \texttt{multiprocessing.shared\_memory} para compartir el dataset entre procesos.
 
 El parámetro $m$ representa el número de semillas/modelos del workload y $p$ el número
-de procesos worker. Esta separación permite mantener fijo el problema y modificar
-únicamente los recursos en la campaña de strong scaling.
+de procesos worker. Esta separación permite mantener fijo el problema y modificar los recursos en la campaña de strong scaling.
 
 \subsection{Beta 0: baseline secuencial}
 
@@ -725,7 +724,7 @@ Este comportamiento implementa el componente \emph{Concurrent Read} de CREW.
 
 \subsubsection{Escrituras exclusivas}
 
-Cada semilla $s$ escribe únicamente en sus propias posiciones:
+Cada semilla $s$ escribe en sus propias posiciones:
 
 \begin{equation}
     Acc[s],\qquad
@@ -786,7 +785,7 @@ cualquier divergencia semántica entre la versión secuencial y la paralela.
 % ==================================================
 
 La campaña principal de la entrega final evalúa \emph{strong scaling} con un workload
-externo fijo. Se mantiene constante el conjunto de semillas y se modifica únicamente
+externo fijo. Se mantiene constante el conjunto de semillas y solo se modifica
 el número de procesos.
 
 \subsection{Configuración de la campaña final}
@@ -805,10 +804,15 @@ Se consideran:
     p\in\{1,2,4,8\},
 \end{equation}
 
-La plataforma final dispone de 12 CPU lógicas; por ello la campaña principal
-no incluye $p=16$ ni $p=32$.
+La plataforma final dispone de 12 CPU lógicas. Se utiliza $p=8$ como máximo
+porque es el mayor divisor de $m=32$ que no supera la cantidad de CPU lógicas
+disponibles. De esta manera, todos los valores evaluados
+$p\in\{1,2,4,8\}$ distribuyen uniformemente las 32 semillas entre los workers.
+Utilizar $p=12$ sería posible, pero introduciría un reparto desigual de semillas
+y agregaría desbalance de carga como una variable adicional al experimento.
+Asimismo, no se incluyen $p=16$ ni $p=32$ para evitar sobreasignación de procesos.
 
-y los tamaños:
+Los tamaños evaluados son:
 
 \begin{equation}
     n\in\{5000,10000,20000\}.
@@ -891,18 +895,15 @@ pueden contribuir al desbalance.
 Para cada configuración el runner verifica:
 
 \begin{itemize}[leftmargin=*]
-    \item misma semilla ganadora entre Beta 0 y Beta 2;
-    \item misma accuracy ganadora;
-    \item misma colección de accuracies para todas las semillas;
+    \item misma semilla ganadora entre Beta 0 y Beta 2
+    \item misma accuracy ganadora
+    \item misma colección de accuracies para todas las semillas
     \item mismo número de iteraciones por semilla.
 \end{itemize}
 
-Una configuración solo debe incorporarse al análisis final si la versión paralela es
-funcionalmente equivalente al baseline.
-
 \subsection{Métricas}
 
-Para cada $n$ y $p$ se utilizan:
+Para cada $n$ y $p$ se usan:
 
 \begin{equation}
     \Speedup(n,p)
@@ -1036,8 +1037,7 @@ calculado por repetición emparejada.}
 \end{figure}
 
 \paragraph{Criterio de interpretación.}
-Para cada $n$ se comparan los tiempos paralelos con un único baseline secuencial del
-mismo workload. Se analizarán:
+Para cada $n$ se comparan los tiempos paralelos con un solo baseline secuencial. Se analizan:
 
 \begin{equation}
     T_{\mathrm{par}}(n,p),
@@ -1053,6 +1053,70 @@ Las fases instrumentadas permiten ubicar los tiempos de preparación de memoria
 compartida, creación del pool, sincronización, reducción y liberación de recursos.
 No separan el entrenamiento del scheduling y del arranque efectivo dentro de
 \texttt{map}; por ello no se atribuye a una sola causa el overhead estimado.
+
+\subsection{Descomposición experimental del tiempo paralelo}
+
+La instrumentación de Beta 2 permite analizar la contribución de las principales
+fases de la ejecución. Como caso representativo se considera la configuración de
+mayor tamaño evaluada,
+
+\begin{equation}
+    n=20000,\qquad m=32,\qquad p=8.
+\end{equation}
+
+Para esta configuración, las medianas de las tres repeticiones fueron:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrr}
+\toprule
+Fase & Tiempo mediano (s) & Porcentaje de $T_{\mathrm{par}}$ \\
+\midrule
+\texttt{split}        & 0.004096 & 0.008\% \\
+\texttt{shm\_setup}   & 0.001923 & 0.004\% \\
+\texttt{pool\_start}  & 0.055605 & 0.110\% \\
+\texttt{map}          & 49.907527 & 99.146\% \\
+\texttt{join}         & 0.359981 & 0.715\% \\
+\texttt{reduccion}    & 0.000037 & $<0.001\%$ \\
+\texttt{shm\_cleanup} & 0.000650 & 0.001\% \\
+\bottomrule
+\end{tabular}
+\caption{Descomposición de fases de Beta 2 para $n=20000$, $m=32$ y $p=8$.
+Los valores corresponden a la mediana de las tres repeticiones de la campaña final.}
+\label{tab:fases-beta2}
+\end{table}
+
+El tiempo paralelo mediano de esta configuración fue aproximadamente
+$50.34$ s. La fase \texttt{map} representa alrededor del $99.15\%$ de dicho
+tiempo y constituye, por tanto, la fase dominante de la ejecución.
+
+Sin embargo, \texttt{map} no debe interpretarse como tiempo útil de
+entrenamiento. Esta fase incluye la ejecución de las tareas de entrenamiento,
+el scheduling realizado por el runtime y parte del arranque efectivo de los
+workers. Por esta razón, las mediciones disponibles no permiten atribuir toda
+la diferencia respecto del modelo ideal a una única causa.
+
+En contraste, las fases asociadas específicamente a la preparación de memoria
+compartida poseen un costo muy reducido. Para esta configuración,
+\texttt{shm\_setup} requirió aproximadamente $1.9$ ms y
+\texttt{shm\_cleanup} aproximadamente $0.65$ ms.
+
+La reducción final tuvo un tiempo mediano cercano a
+
+\begin{equation}
+    3.7\times10^{-5}\ \mathrm{s},
+\end{equation}
+
+lo cual representa menos del $0.001\%$ del tiempo paralelo total. Este resultado
+es relevante porque muestra que, aunque paralelizar la reducción permitiría
+aproximar su profundidad a $\Theta(\log m)$ en la implementación real, dicha
+optimización tendría un efecto prácticamente despreciable sobre el tiempo total
+para $m=32$.
+
+Por tanto, la principal separación entre el rendimiento experimental y el modelo
+PRAM ideal no se encuentra en la reducción final, sino en la fase en la que se
+ejecutan y administran los entrenamientos paralelos.
 
 \subsection{Comparación con el modelo ideal}
 
@@ -1090,6 +1154,60 @@ $n=10000$, los speedups medianos en $p=8$ son $2.99$ y $3.47$. La distancia
 respecto del ideal es compatible con los costos reales de procesos,
 planificación, sincronización y contención, pero las fases disponibles no
 permiten cuantificar por separado la contribución causal de cada uno.
+
+\subsection{Mejoras propuestas}
+
+Los resultados permiten identificar mejoras tanto en la implementación como en la
+metodología experimental.
+
+En primer lugar, una posible optimización consiste en reutilizar el
+\texttt{Pool} de procesos y los segmentos de memoria compartida cuando se ejecuten
+varios lotes consecutivos de entrenamiento. En la implementación actual estos recursos
+se crean y liberan dentro de cada ejecución. Su reutilización permitiría amortizar
+estos costos entre múltiples workloads.
+
+En segundo lugar, sería útil instrumentar con mayor detalle la fase
+\texttt{map}. Esta fase concentra aproximadamente el $99.15\%$ del tiempo paralelo
+en la configuración $n=20000$, $p=8$, pero agrupa entrenamiento, scheduling y parte
+del arranque efectivo de los workers. Una instrumentación más granular permitiría
+separar el tiempo computacional útil del costo asociado al runtime y estudiar con
+mayor precisión las causas de la pérdida de eficiencia.
+
+Otra mejora posible consiste en paralelizar las comparaciones de cada
+nivel de la reducción final, de modo que la implementación reproduzca la profundidad
+
+\begin{equation}
+    \Theta(\log m)
+\end{equation}
+
+del diseño PRAM. Sin embargo, las mediciones muestran que la reducción representa
+menos del $0.001\%$ del tiempo total para la configuración de mayor tamaño estudiada.
+Por ello, esta modificación tendría principal valor conceptual y no constituye
+la optimización de mayor impacto práctico.
+
+También sería útil ejecutar una nueva campaña de strong scaling en una plataforma
+con al menos 32 CPU disponibles dentro de un mismo nodo. Esto permitiría evaluar
+
+\begin{equation}
+    p\in\{1,2,4,8,16,32\},
+\end{equation}
+
+manteniendo fijo $m=32$ y determinar si el speedup continúa
+creciendo después de $p=8$ o alcanza un punto de saturación. Debido a que Beta 2
+emplea memoria compartida entre procesos, esta extensión debe realizarse dentro de
+un mismo nodo. Además, todos los valores de $p$ deberían ejecutarse de nuevo en
+la misma plataforma; no sería correcto combinar puntos obtenidos
+en Windows con puntos obtenidos en hardware distinto dentro de una misma curva de
+strong scaling.
+
+Finalmente, desde el punto de vista de evaluación del modelo de aprendizaje, una
+extensión metodológica consistiría en separar los conjuntos de validación y test.
+La implementación actual utiliza la accuracy del conjunto denominado test para
+seleccionar la mejor semilla. Una versión posterior podría seleccionar la semilla
+mediante un conjunto de validación y utilizar un conjunto de test reservado
+para evaluar el modelo final. Esta modificación no afecta el objetivo principal del
+proyecto de analizar paralelismo, pero produciría una estimación más independiente de
+la capacidad de generalización.
 
 \subsection{Resultados preliminares históricos: Beta 1 con $m=p$}
 
@@ -1162,7 +1280,7 @@ workload aumentaba con $p$ y las campañas local/Khipu se ejecutaron en entornos
 En la campaña $m=p$, aumentar $p$ también aumentaba el número de inicializaciones
 candidatas. Por ello, una mejora del máximo de accuracy no podía atribuirse al
 paralelismo de un mismo workload. La campaña final con $m=32$ elimina esta confusión:
-todas las configuraciones comparan exactamente el mismo conjunto de semillas.
+todas las configuraciones comparan el mismo conjunto de semillas.
 
 
 \section{Análisis de escalabilidad}
@@ -1181,7 +1299,7 @@ Para una prueba de strong scaling se mantienen fijos:
     m,\ n,\ d,\ h,\ E
 \end{equation}
 
-y se modifica únicamente $p$.
+y se modifica $p$.
 
 En la campaña final:
 
@@ -1204,7 +1322,7 @@ Por tanto:
          {T_{\mathrm{par}}(n,m=32,p)}
 \end{equation}
 
-compara exactamente el mismo problema para todos los valores de $p$.
+compara el mismo problema para todos los valores de $p$.
 
 En los tres tamaños medidos, $T_{\mathrm{par}}$ disminuye al pasar de $p=1$ a
 $p=8$, pero el speedup crece menos que la línea ideal. En $p=8$ las eficiencias
@@ -1290,8 +1408,7 @@ Para el caso preliminar $m=p$ se obtiene:
     \Omega(\log p).
 \end{equation}
 
-En Beta 2 el overhead real no se limita a la reducción. La campaña final mide
-directamente:
+En Beta 2 el overhead real no se limita a la reducción. La campaña final mide:
 
 \begin{equation}
     T_0(n,p)
@@ -1324,12 +1441,12 @@ fases de overhead de forma explícita.
 \section{Impacto de las fuentes utilizadas}
 % ==================================================
 
-Las fuentes se utilizaron para respaldar decisiones concretas del diseño y no solamente
+Las fuentes se utilizaron para respaldar decisiones concretas del diseño y no solo
 para incluir definiciones generales.
 
 El libro de Grama, Gupta, Karypis y Kumar se utilizó para estructurar el análisis en
 trabajo, profundidad, paralelismo, tiempo con $p$ procesadores, speedup, eficiencia y
-overhead \cite{grama2003}. Esta referencia influyó directamente en la separación entre
+overhead \cite{grama2003}. Esta referencia influyó en la separación entre
 el trabajo total de las $m$ semillas y la profundidad de una semilla más la reducción.
 
 La documentación oficial de Python sobre \texttt{multiprocessing} se utilizó primero
@@ -1366,9 +1483,9 @@ proyecto.
 \section{Uso de herramientas de inteligencia artificial}
 % ==================================================
 
-Se utilizó ChatGPT como referencia de apoyo para comprender algunos conceptos clave del
+Se utilizó ChatGPT como referencia de apoyo \cite{openai2026chatgpt} para comprender algunos conceptos clave del
 proyecto, como CREW-PRAM, trabajo, profundidad, speedup, eficiencia y paralelismo entre
-semillas. También se empleó para revisar puntualmente la redacción de algunas secciones.
+semillas. También se empleó para revisar la redacción de algunas secciones.
 
 La IA no se utilizó como fuente experimental ni sustituyó la revisión del código, las
 mediciones o las referencias bibliográficas. Las decisiones finales se contrastaron con
@@ -1379,7 +1496,7 @@ las indicaciones del proyecto, el repositorio y la documentación técnica utili
 \section{Conclusiones}
 % ==================================================
 
-El algoritmo presenta paralelismo de grano grueso directamente sobre el conjunto de
+El algoritmo presenta paralelismo de grano grueso sobre el conjunto de
 semillas $S$: cada semilla entrena un MLP independiente y la única dependencia global
 aparece en la selección del mejor resultado. Esta estructura justifica el modelo
 CREW-PRAM, porque múltiples workers leen concurrentemente el dataset y cada seed escribe
@@ -1414,7 +1531,7 @@ La instrumentación de Beta 2 permite estudiar el overhead mediante las fases de
 partición, creación de memoria compartida, creación del pool, ejecución de tareas,
 sincronización, reducción y liberación de segmentos. Además, se registra
 \texttt{n\_iter\_} por semilla, evitando asumir sin evidencia que todos los modelos
-ejecutan exactamente el mismo número de iteraciones.
+ejecutan el mismo número de iteraciones.
 
 Las campañas anteriores con $m=p$ se conservan como resultados preliminares. Sirvieron
 para validar la equivalencia funcional y mostrar el efecto de la disponibilidad física
@@ -1426,8 +1543,8 @@ La campaña final corrige esta limitación fijando:
     m=32
 \end{equation}
 
-y variando únicamente $p$ para cada tamaño $n$. De esta forma, el speedup y la
-eficiencia se calculan sobre exactamente el mismo conjunto de semillas.
+y variando solo $p$ para cada tamaño $n$. De esta forma, el speedup y la
+eficiencia se calculan sobre el mismo conjunto de semillas.
 
 En la campaña final Windows, el mayor speedup mediano fue $3.65$ para
 $n=20000$, $p=8$, con eficiencia $45.6\%$. Los tiempos paralelos siguieron
@@ -1437,17 +1554,24 @@ pero permaneció lejos del ideal del 100\%. El overhead estimado para ese $p$
 creció de 80.28 s a 219.12 s entre los tamaños extremos.
 
 Las 12 configuraciones tuvieron tres repeticiones completas y preservaron
-ganador, accuracy y \texttt{n\_iter\_} por semilla frente a Beta 0. El tiempo
-registrado en \texttt{map} fue la mayor fase medida, pero combina entrenamiento,
-planificación y parte del inicio de procesos; estas mediciones no aíslan la
-causa exacta de la pérdida de eficiencia. En $n=5000$ todas las semillas
-alcanzaron \texttt{max\_iter=200}; en $n=10000$ y $n=20000$, 31 de 32 lo
-alcanzaron, con mínimos de 197 y 178 iteraciones respectivamente.
+ganador, accuracy y \texttt{n\_iter\_} por semilla frente a Beta 0. Para
+$n=5000$ todas las semillas alcanzaron \texttt{max\_iter=200}; en
+$n=10000$ y $n=20000$, 31 de 32 alcanzaron dicho límite, con mínimos de
+197 y 178 iteraciones respectivamente.
 
-Como mejora futura, la reducción final podría paralelizarse realmente por niveles para
-aproximar su profundidad a $\Theta(\log m)$. También sería posible estudiar una campaña
-de isoeficiencia diseñada explícitamente para aumentar el tamaño del problema junto con
-$p$, manteniendo constante una eficiencia objetivo.
+La descomposición experimental muestra además que, para $n=20000$ y $p=8$,
+la fase \texttt{map} concentra aproximadamente el $99.15\%$ del tiempo paralelo,
+mientras que la reducción representa menos del $0.001\%$. Por ello, aunque
+paralelizar la reducción acercaría la implementación al diseño PRAM ideal desde
+el punto de vista de profundidad, no constituye el principal cuello de botella
+observado.
+
+Las mejoras de mayor interés se encuentran en caracterizar con mayor detalle la
+fase \texttt{map}, amortizar costos del runtime mediante reutilización de recursos
+y extender el strong scaling a una plataforma con más CPU disponibles en un mismo
+nodo. Estas extensiones permitirían identificar con mayor precisión el límite de
+escalabilidad de Beta 2 sin modificar el paralelismo principal sobre el conjunto
+de semillas.
 
 % ==================================================
 \newpage
